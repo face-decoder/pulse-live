@@ -33,3 +33,29 @@ class Image:
         # Jika format gambar tidak dikenali, kembalikan dengan raise ValueError
         else:
             raise ValueError("Input image must be either a grayscale or BGR image.")
+
+
+    def grayscale_gpu(self, gpu_image: 'cv2.cuda_GpuMat', dst: 'cv2.cuda_GpuMat' = None, stream: 'cv2.cuda.Stream' = None) -> 'cv2.cuda_GpuMat':
+        """
+        Mengonversi gambar BGR ke grayscale di GPU menggunakan CUDA.
+        Operasi dilakukan secara async jika stream diberikan.
+
+        Args:
+            gpu_image (cv2.cuda_GpuMat): GpuMat input dalam format BGR.
+            dst (cv2.cuda_GpuMat, optional): GpuMat output untuk hasil grayscale.
+            stream (cv2.cuda.Stream, optional): CUDA stream untuk async operation.
+
+        Returns:
+            cv2.cuda_GpuMat: GpuMat grayscale.
+        """
+        import cv2
+
+        if dst is None:
+            dst = cv2.cuda_GpuMat()
+
+        if stream is not None:
+            cv2.cuda.cvtColor(gpu_image, cv2.COLOR_BGR2GRAY, dst=dst, stream=stream)
+        else:
+            cv2.cuda.cvtColor(gpu_image, cv2.COLOR_BGR2GRAY, dst=dst)
+
+        return dst

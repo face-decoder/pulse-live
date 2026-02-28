@@ -26,6 +26,40 @@ class Video:
             raise ValueError(f"Cannot open video file: {video_path}")
 
 
+    def read_all_frames(self) -> list:
+        """
+        Membaca semua frame dari video sekaligus ke dalam memory.
+        Berguna untuk batch processing yang membutuhkan akses random ke frame.
+
+        Returns:
+            list: Daftar semua frame dalam video sebagai numpy arrays.
+        """
+        frames = []
+
+        while True:
+            ret, frame = self.capture.read()
+            if not ret:
+                break
+            frames.append(frame)
+
+        self.capture.release()
+        return frames
+
+
+    def get_frame_pairs(self) -> list:
+        """
+        Membaca semua frame dan mengembalikan pasangan frame berturut-turut.
+
+        Returns:
+            list: Daftar tuple (prev_frame, curr_frame, frame_index).
+        """
+        frames = self.read_all_frames()
+        pairs = []
+        for i in range(len(frames) - 1):
+            pairs.append((frames[i], frames[i + 1], i))
+        return pairs
+
+
     def map(self, func: callable) -> list:
         """
         Menerapkan fungsi pada setiap pasangan frame berturut-turut dalam video.
