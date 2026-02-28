@@ -1,4 +1,10 @@
 import os
+
+# Mencoba untuk supress (menyembunyikan) log warning dari TensorFlow mediapipe
+# Harapan: untuk membuat output lebih bersih tanpa log yang tidak berpengaruh
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['GLOG_minloglevel'] = '2'
+
 import cv2
 import numpy as np
 import absl.logging
@@ -8,11 +14,6 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from typing import Tuple, List
 
-
-# Mencoba untuk supress (menyembunyikan) log warning dari TensorFlow mediapipe
-# Harapan: untuk membuat output lebih bersih tanpa log yang tidak berpengaruh
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ['GLOG_minloglevel'] = '2'
 absl.logging.set_verbosity(absl.logging.ERROR)
 
 
@@ -78,6 +79,38 @@ class FaceLandmark:
 
         # Membuat attribut landmark untuk menyimpan hasil deteksi
         self.landmark = None
+
+
+    @staticmethod
+    def interpolate_landmarks(landmarks_a, landmarks_b, t: float):
+        """
+        Interpolasi linear antara dua FaceLandmarkerResult berdasarkan faktor t.
+        Menghasilkan objek yang kompatibel dengan crop() dan crop_roi().
+
+        Args:
+            landmarks_a: FaceLandmarkerResult pada keyframe awal.
+            landmarks_b: FaceLandmarkerResult pada keyframe akhir.
+            t (float): Faktor interpolasi [0.0, 1.0]. 0.0 = landmarks_a, 1.0 = landmarks_b.
+
+        Returns:
+            Objek kompatibel FaceLandmarkerResult dengan koordinat yang diinterpolasi.
+        """
+        if not landmarks_a.face_landmarks or not landmarks_b.face_landmarks:
+            # Jika salah satu tidak punya landmark, return yang ada
+            return landmarks_a if landmarks_a.face_landmarks else landmarks_b
+
+        lm_a = landmarks_a.face_landmarks[0]
+        lm_b = landmarks_b.face_landmarks[0]
+
+        interpolated_points = []
+        for pa, pb in zip(lm_a, lm_b):
+            interpolated_points.append(_InterpolatedLandmark(
+                x=pa.x + (pb.x - pa.x) * t,
+                y=pa.y + (pb.y - pa.y) * t,
+                z=pa.z + (pb.z - pa.z) * t
+            ))
+
+        return _InterpolatedResult(interpolated_points)
 
 
     def detect(self, image: np.ndarray) -> vision.FaceLandmarkerResult: #type: ignore
@@ -297,3 +330,21 @@ class FaceLandmark:
         cv2.fillConvexPoly(mask, roi_polygon, 255)
 
         return output, mask
+
+
+class _InterpolatedLandmark:
+    """Lightweight landmark point yang kompatibel dengan MediaPipe landmark."""
+    __slots__ = ('x', 'y', 'z')
+
+    def __init__(self, x: float, y: float, z: float):
+        self.x = x
+        self.y = y
+        self.z = z
+
+
+class _InterpolatedResult:
+    """Lightweight FaceLandmarkerResult yang kompatibel dengan crop() dan crop_roi()."""
+    __slots__ = ('face_landmarks',)
+
+    def __init__(self, landmarks: list):
+        self.face_landmarks = [landmarks]
