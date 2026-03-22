@@ -43,6 +43,10 @@ class ApexPhaseSpotter:
                     f"roi_defs[{i}] must be (roi_name, roi_points, roi_size), got: {item}"
                 )
 
+    def close(self) -> None:
+        if self.tvl1 is not None and hasattr(self.tvl1, "close"):
+            self.tvl1.close()
+
 
     def _reset(self) -> None:
 
@@ -165,6 +169,27 @@ class ApexPhaseSpotter:
         for i in range(len(image_list) - 1):
             prev_frame = cv2.imread(image_list[i])
             curr_frame = cv2.imread(image_list[i + 1])
+            self.__process_roi(prev_frame, curr_frame, i)
+
+        return self.__find_apex_phase(self.magnitudes)
+
+
+    def process_frames(self, frames: List[np.ndarray]):
+        """
+        Proses list of in-memory numpy frames.
+
+        Args:
+            frames: List of numpy arrays representing video frames.
+
+        Returns:
+            Tuple (apex_indices, phases) hasil deteksi apex phase pada sequence gambar.
+        """
+        
+        self._reset()
+
+        for i in range(len(frames) - 1):
+            prev_frame = frames[i]
+            curr_frame = frames[i + 1]
             self.__process_roi(prev_frame, curr_frame, i)
 
         return self.__find_apex_phase(self.magnitudes)

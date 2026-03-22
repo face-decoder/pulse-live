@@ -221,6 +221,10 @@ class AnxietyInferencer:
         self._model.load_state_dict(state)
         self._model.eval()
 
+        # Prevent gradient tracking/memory leakage on weights
+        for param in self._model.parameters():
+            param.requires_grad = False
+
         # Normalizer (optional)
         self._normalizer: Normalizer | None = None
         if normalizer_path is not None:
@@ -533,14 +537,11 @@ class AnxietyInferencer:
         return top_features
 
     def _extract_from_video(self, video_path: str) -> tuple[list, np.ndarray]:
-        """Extract optical flow from a raw video using TV-L1.
+        """Extract optical flow from a raw video using ApexPhaseSpotter.
 
         Pipeline:
-            1. Read frames via ``cv2.VideoCapture``.
-            2. Compute TV-L1 optical flow for consecutive frame pairs.
-            3. Crop ROI using landmark detector (if available).
-            4. Return ``(roi_frames, magnitudes)`` compatible with
-               :class:`FeatureExtractor`.
+            1. Process video using ApexPhaseSpotter.
+            2. Export flow data matching the .npy format.
 
         Args:
             video_path: Path to the video file.
@@ -549,78 +550,23 @@ class AnxietyInferencer:
             Tuple of ``(roi_frames, magnitudes)``.
 
         Raises:
-            ImportError: If OpenCV or the TV-L1 module is unavailable.
-            RuntimeError: If the video cannot be opened or is too short.
+            ImportError: If ApexPhaseSpotter is unavailable.
         """
         try:
-            import cv2
+            from src.apex.modules.v2.apex_phase_spotter import ApexPhaseSpotter
         except ImportError as exc:
             raise ImportError(
-                "OpenCV is required for video extraction. "
-                "Install with: pip install opencv-python"
+                f"ApexPhaseSpotter module not found: {exc}"
             ) from exc
 
-        try:
-            from src.optical_flow.tvl1 import TVL1
-        except ImportError as exc:
-            raise ImportError(
-                f"TV-L1 module not found: {exc}\n"
-                f"Ensure src/optical_flow/tvl1.py exists."
-            ) from exc
+        spotter = ApexPhaseSpotter()
+        spotter.process(video_path)
+        flow_data = spotter.export_flow_data()
+        
+        roi_frames = flow_data["frames"]
+        magnitudes = np.array(flow_data["magnitudes"], dtype=np.float32)
 
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise RuntimeError(f"Cannot open video: {video_path}")
-
-        frames: list[np.ndarray] = []
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frames.append(frame)
-        cap.release()
-
-        if len(frames) < 2:
-            raise RuntimeError(
-                f"Video too short ({len(frames)} frames). "
-                f"At least 2 frames are required."
-            )
-
-        tvl1 = TVL1(fast_mode=True)
-        roi_order = self._extractor.ROI_ORDER
-
-        try:
-            from src.landmark.modules import LandmarkDetector  # noqa: F401
-            has_landmark = True
-        except ImportError:
-            has_landmark = False
-
-        roi_frames: list[list[dict[str, object]]] = []
-        magnitudes: list[float] = []
-
-        for t in range(len(frames) - 1):
-            flow = tvl1.compute(frames[t], frames[t + 1], download=True)
-            dx = flow[..., 0]   # (H, W)
-            dy = flow[..., 1]   # (H, W)
-            mag = np.sqrt(dx ** 2 + dy ** 2)
-
-            if has_landmark:
-                raise NotImplementedError(
-                    "Landmark-based ROI cropping for video is not yet "
-                    "implemented in the inferencer. Use predict_npy() "
-                    "with a pre-extracted .npy file instead."
-                )
-
-            # Fallback: use full frame as each ROI
-            frame_rois: list[dict[str, object]] = [
-                {"roi": r, "dx": dx, "dy": dy}
-                for r in roi_order
-            ]
-            roi_frames.append(frame_rois)
-            magnitudes.append(float(mag.mean()))
-
-        tvl1.close()
-        return roi_frames, np.array(magnitudes, dtype=np.float32)
+        return roi_frames, magnitudes
 
     @staticmethod
     def _error_result(message: str) -> InferenceResult:

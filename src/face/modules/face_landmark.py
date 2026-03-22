@@ -19,11 +19,11 @@ absl.logging.set_verbosity(absl.logging.ERROR)
 
 class FaceLandmark:
 
-    BASE_ROOT_DIR: str = Path(os.getcwd()).parent
-
+    BASE_ROOT_DIR: Path = Path(__file__).resolve().parent.parent.parent.parent
+    
     BASE_MODEL_PATH: str = "src/face/tasks/face_landmarker.task"
 
-    MODEL_PATH: Path = Path(BASE_ROOT_DIR, BASE_MODEL_PATH)
+    MODEL_PATH: Path = BASE_ROOT_DIR / BASE_MODEL_PATH
 
     base_options: python.BaseOptions #type: ignore
 
