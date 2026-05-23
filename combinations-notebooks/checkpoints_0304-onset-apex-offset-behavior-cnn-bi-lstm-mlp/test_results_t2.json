@@ -1,0 +1,12 @@
+{
+  "annotation_test": "/home/inadio/datasets/dataset_test_2/annotations-clips.csv",
+  "n_clips": 261,
+  "n_subjects": 57,
+  "test_loss": 0.698601504166921,
+  "test_acc": 0.5789473684210527,
+  "test_f1_macro": 0.4571428571428572,
+  "test_f1_weighted": 0.6691729323308271,
+  "test_bacc": 0.5884615384615384,
+  "test_recall_rendah": 0.6,
+  "test_recall_tinggi": 0.5769230769230769
+}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -46,6 +47,214 @@ def set_inferencer(inf: AnxietyInferencer) -> None:
 
 
 
+class AnxietyStreamProcessor:
+    """Incremental streaming and inference processor for video frames.
+
+    Decouples core landmark detection, optical flow transitions, and
+    anxiety classifier prediction from the underlying WebRTC transport layer.
+    """
+
+    def __init__(
+        self,
+        result_queue: asyncio.Queue[dict[str, object]],
+    ) -> None:
+        self._result_queue = result_queue
+
+        from src.apex.modules.v2.apex_phase_spotter import ApexPhaseSpotter
+        self._spotter = ApexPhaseSpotter(mode="batch")
+
+        self._inference_in_progress = False
+        self._max_window_len = int(WINDOW_SECONDS * TARGET_FPS)
+        self._landmark_thread_lock = threading.Lock()
+
+        # Incremental sliding buffers
+        self._last_frame: np.ndarray | None = None
+        self._last_landmarks = None
+        
+        self._magnitudes_buf: deque[float] = deque(maxlen=self._max_window_len - 1)
+        self._flows_buf: deque[list] = deque(maxlen=self._max_window_len - 1)
+        self._bboxes_buf: deque[dict | None] = deque(maxlen=self._max_window_len)
+
+        self._processing_queue = asyncio.Queue()
+        self._process_loop_task = asyncio.create_task(self._process_loop())
+
+    def push_frame(self, img: np.ndarray, received_at: float) -> None:
+        """Push a new video frame to the processor queue."""
+        # Discard older frames if queue is backing up to keep latency minimal
+        while self._processing_queue.qsize() > 2:
+            try:
+                self._processing_queue.get_nowait()
+                self._processing_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+
+        self._processing_queue.put_nowait((img, received_at))
+
+    async def _process_loop(self) -> None:
+        """Process incoming video frames sequentially from the queue."""
+        while True:
+            try:
+                img, received_at = await self._processing_queue.get()
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                continue
+
+            try:
+                await self._process_frame(img, received_at)
+            except Exception:
+                logger.error("Error in process_frame background task", exc_info=True)
+            finally:
+                self._processing_queue.task_done()
+
+    async def _process_frame(self, img: np.ndarray, received_at: float) -> None:
+        """Perform landmark detection and optical flow transition computation for one frame."""
+        loop = asyncio.get_running_loop()
+
+        # 1. Run face landmark detection (thread-safely via executor)
+        def detect_landmarks_and_bbox(image):
+            with self._landmark_thread_lock:
+                landmarks = self._spotter.face_landmark.detect(image)
+                bbox = self._spotter._get_face_bbox(landmarks, image)
+            return landmarks, bbox
+
+        landmarks, bbox = await loop.run_in_executor(None, detect_landmarks_and_bbox, img)
+
+        # Send the real-time bbox overlay message immediately
+        latency_ms = (time.time() - received_at) * 1000
+        await self._result_queue.put({
+            "type": "bbox",
+            "bbox": bbox,
+            "latency_ms": round(latency_ms, 2)
+        })
+
+        # 2. Compute optical flow transition if we have a previous frame
+        prev_img = self._last_frame
+        prev_landmarks = self._last_landmarks
+
+        if prev_img is not None and prev_landmarks is not None:
+            def compute_transition(p_img, c_img, p_lm, c_lm):
+                with self._landmark_thread_lock:
+                    return self._spotter.process_frame_pair(p_img, c_img, p_lm, c_lm)
+
+            mag, flow_bucket = await loop.run_in_executor(
+                None, compute_transition, prev_img, img, prev_landmarks, landmarks
+            )
+
+            # Slide our buffers
+            self._magnitudes_buf.append(mag)
+            self._flows_buf.append(flow_bucket)
+            self._bboxes_buf.append(bbox)
+        else:
+            self._bboxes_buf.append(bbox)
+
+        self._last_frame = img
+        self._last_landmarks = landmarks
+
+        # 3. Trigger inference when the window is full
+        if len(self._magnitudes_buf) >= self._max_window_len - 1 and not self._inference_in_progress:
+            self._inference_in_progress = True
+            # Copy state to avoid race conditions with next frame
+            mags_copy = list(self._magnitudes_buf)
+            flows_copy = list(self._flows_buf)
+            bboxes_copy = list(self._bboxes_buf)
+            asyncio.create_task(self._run_inference_background(mags_copy, flows_copy, bboxes_copy, received_at))
+
+    async def _run_inference_background(
+        self,
+        mags: list[float],
+        flows: list[list[dict]],
+        bboxes: list[dict | None],
+        received_at: float
+    ) -> None:
+        """Run the actual deep learning model inference in the background."""
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, self._run_inference, mags, flows, bboxes, received_at
+            )
+            if result is not None:
+                await self._result_queue.put(result)
+        except Exception:
+            logger.error("Background inference failed", exc_info=True)
+        finally:
+            self._inference_in_progress = False
+
+    def _run_inference(
+        self,
+        mags: list[float],
+        flows: list[list[dict]],
+        bboxes: list[dict | None],
+        received_at: float
+    ) -> dict[str, object] | None:
+        """Execute prediction using pre-computed optical flow and landmarks.
+
+        This runs synchronously in the executor.
+        """
+        start_time = time.time()
+        if inferencer is None:
+            logger.warning("Inferencer not loaded — skipping prediction")
+            return None
+        if len(mags) < 1:
+            return None
+
+        try:
+            # Spot the onset-apex-offset phases based on magnitudes
+            with self._landmark_thread_lock:
+                apex_indices, phases = self._spotter.find_apex_phase(mags)
+            
+            # Convert phases to client representation
+            detected_phases = [
+                {
+                    "onset": int(phase["start"]),
+                    "apex": int(apex_idx),
+                    "offset": int(phase["end"])
+                }
+                for apex_idx, phase in phases.items()
+            ]
+
+            # Run inferencer prediction from the pre-computed flows and magnitudes
+            mag_array = np.array(mags, dtype=np.float32)
+            result = inferencer._predict_from_frames(flows, mag_array)
+        except Exception:
+            logger.error("Inference pipeline failed", exc_info=True)
+            return None
+
+        smoothed_mags = getattr(self._spotter, "smoothed_magnitudes", None)
+        smoothed_mags_list = [float(m) for m in smoothed_mags] if smoothed_mags is not None else []
+
+        return {
+            "type": "prediction",
+            "label": result.label,
+            "confidence": round(result.confidence, 4),
+            "prob_high": round(result.prob_high, 4),
+            "prob_low": round(result.prob_low, 4),
+            "n_apex_detected": result.n_apex_detected,
+            "n_frames": len(bboxes),
+            "warning": result.warning,
+            "top_features": [
+                {
+                    "name": f.name,
+                    "value": round(f.value, 4),
+                    "saliency": round(f.saliency, 4),
+                    "direction": f.direction,
+                }
+                for f in result.top_features[:5]
+            ],
+            "face_bboxes": bboxes,
+            "magnitudes": mags,
+            "smoothed_magnitudes": smoothed_mags_list,
+            "detected_phases": detected_phases,
+            "latency_ms": round((time.time() - start_time) * 1000, 2),
+        }
+
+    def close(self) -> None:
+        """Release resources when the processor is stopped."""
+        if hasattr(self, "_process_loop_task"):
+            self._process_loop_task.cancel()
+        self._spotter.close()
+
+
 class AnxietyVideoTrack(MediaStreamTrack):
     """Receive a WebRTC video track and run inference on buffered frames.
 
@@ -77,13 +286,35 @@ class AnxietyVideoTrack(MediaStreamTrack):
         self._track = track
         self._result_queue = result_queue
 
-        from src.apex.modules.v2.apex_phase_spotter import ApexPhaseSpotter
-        self._spotter = ApexPhaseSpotter(mode="batch")
+        self._processor = AnxietyStreamProcessor(result_queue)
 
-        self._frame_buf: deque[np.ndarray] = deque()
         self._window_start: float = time.time()
         self._last_frame_time: float = 0.0
         self._frame_interval: float = 1.0 / TARGET_FPS
+
+    @property
+    def _spotter(self):
+        return self._processor._spotter
+
+    @property
+    def _bboxes_buf(self):
+        return self._processor._bboxes_buf
+
+    @property
+    def _processing_queue(self):
+        return self._processor._processing_queue
+
+    @property
+    def _run_inference(self):
+        return self._processor._run_inference
+
+    @_run_inference.setter
+    def _run_inference(self, val):
+        self._processor._run_inference = val
+
+    @property
+    def _max_window_len(self):
+        return self._processor._max_window_len
 
     async def recv(self) -> object:
         """Receive, buffer, and optionally trigger inference.
@@ -101,90 +332,14 @@ class AnxietyVideoTrack(MediaStreamTrack):
 
         # Convert aiortc VideoFrame → numpy BGR
         img: np.ndarray = frame.to_ndarray(format="bgr24")
-        self._frame_buf.append(img)
 
-        # Check whether the window is full
-        elapsed = now - self._window_start
-        if elapsed >= WINDOW_SECONDS and len(self._frame_buf) >= MIN_FRAMES:
-            frames = list(self._frame_buf)
-            self._frame_buf.clear()
-            self._window_start = now
-
-            # Run CPU-bound inference off the event loop
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                None, self._run_inference, frames,
-            )
-            if result is not None:
-                await self._result_queue.put(result)
-
+        self._processor.push_frame(img, now)
         return frame
-
-    # ── Private helpers ────────────────────────────────────────────────
-
-    def _run_inference(
-        self, frames: list[np.ndarray],
-    ) -> dict[str, object] | None:
-        """Execute TV-L1 optical flow + inference on a frame window.
-
-        This method runs **synchronously** inside a thread-pool executor
-        so it must not call any async APIs.
-
-        Args:
-            frames: BGR images accumulated over the window.
-
-        Returns:
-            A JSON-serialisable prediction dict, or ``None`` on failure.
-        """
-        if inferencer is None:
-            logger.warning("Inferencer not loaded — skipping prediction")
-            return None
-        if len(frames) < 2:
-            return None
-
-        try:
-            self._spotter.process_frames(frames)
-            flow_data = self._spotter.export_flow_data()
-        except Exception:
-            logger.error("ApexPhaseSpotter failed to process frames", exc_info=True)
-            return None
-
-        roi_frames = flow_data["frames"]
-        mag_array = np.array(flow_data["magnitudes"], dtype=np.float32)
-
-        if not roi_frames or len(mag_array) == 0:
-            return None
-
-        try:
-            result = inferencer._predict_from_frames(roi_frames, mag_array)
-        except Exception:
-            logger.error("Inference failed", exc_info=True)
-            return None
-
-        return {
-            "type": "prediction",
-            "label": result.label,
-            "confidence": round(result.confidence, 4),
-            "prob_high": round(result.prob_high, 4),
-            "prob_low": round(result.prob_low, 4),
-            "n_apex_detected": result.n_apex_detected,
-            "n_frames": len(frames),
-            "warning": result.warning,
-            "top_features": [
-                {
-                    "name": f.name,
-                    "value": round(f.value, 4),
-                    "saliency": round(f.saliency, 4),
-                    "direction": f.direction,
-                }
-                for f in result.top_features[:5]
-            ],
-        }
 
     def stop(self) -> None:
         """Release resources when the track is stopped."""
         super().stop()
-        self._spotter.close()
+        self._processor.close()
 
 
 # ── Per-session state ─────────────────────────────────────────────────
@@ -249,11 +404,13 @@ async def _send_results(
                 queue.get(), timeout=HEARTBEAT_TIMEOUT_SECONDS,
             )
             raw = json.dumps(result)
-            logger.info("Sending prediction to websocket: %s", raw)
+            pretty_raw = json.dumps(result, indent=2)
+            logger.info("Sending response to websocket:\n%s", pretty_raw)
             await ws.send_text(raw)
         except asyncio.TimeoutError:
             raw = json.dumps({"type": "heartbeat"})
-            logger.info("Sending heartbeat to websocket: %s", raw)
+            pretty_raw = json.dumps({"type": "heartbeat"}, indent=2)
+            logger.info("Sending heartbeat to websocket:\n%s", pretty_raw)
             await ws.send_text(raw)
         except Exception:
             logger.warning("send_results stopped", exc_info=True)
@@ -392,3 +549,58 @@ async def webrtc_signaling(websocket: WebSocket, session_id: str) -> None:
     finally:
         await state.cleanup()
         logger.info("Session %s cleaned up", session_id)
+
+
+@router.websocket("/ws/stream/{session_id}")
+async def websocket_video_stream(websocket: WebSocket, session_id: str) -> None:
+    """WebSocket endpoint for raw binary video frame streaming and real-time result streaming.
+
+    Accepts JPEG/WebP/PNG binary images, processes them, and streams back
+    real-time 'bbox' and windowed 'prediction' JSON results.
+    """
+    await websocket.accept()
+    logger.info("Streaming session %s connected", session_id)
+
+    import cv2
+
+    result_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+    processor = AnxietyStreamProcessor(result_queue)
+
+    # Spawn result sender task
+    result_task = asyncio.create_task(
+        _send_results(websocket, result_queue),
+    )
+
+    loop = asyncio.get_running_loop()
+
+    try:
+        async for data in websocket.iter_bytes():
+            if not data:
+                continue
+
+            # Decode the binary image asynchronously in the thread pool executor
+            def decode_and_verify(payload):
+                nparr = np.frombuffer(payload, np.uint8)
+                return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+            img = await loop.run_in_executor(None, decode_and_verify, data)
+            if img is not None:
+                processor.push_frame(img, time.time())
+            else:
+                logger.warning("Session %s: Failed to decode binary image frame", session_id)
+
+    except WebSocketDisconnect:
+        logger.info("Streaming session %s disconnected", session_id)
+    except Exception:
+        logger.error("Streaming session %s error", session_id, exc_info=True)
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Internal server error"
+            }))
+        except Exception:
+            pass
+    finally:
+        result_task.cancel()
+        processor.close()
+        logger.info("Streaming session %s cleaned up", session_id)
