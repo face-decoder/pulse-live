@@ -3,19 +3,20 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
 
+import cv2
 import numpy as np
 from aiortc import (
     MediaStreamTrack,
-    RTCIceCandidate,
     RTCPeerConnection,
     RTCSessionDescription,
 )
-from aiortc.contrib.media import MediaRelay
+from aiortc.sdp import candidate_from_sdp
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.api.config import (
@@ -24,156 +25,321 @@ from src.api.config import (
     TARGET_FPS,
     WINDOW_SECONDS,
 )
-from src.model.modules import AnxietyInferencer
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-relay = MediaRelay()
-inferencer: AnxietyInferencer | None = None
-
-
-def set_inferencer(inf: AnxietyInferencer) -> None:
-    """Set the module-level inferencer instance.
-
-    Called once from the application ``lifespan`` context manager.
-
-    Args:
-        inf: A fully-initialised :class:`AnxietyInferencer`.
-    """
-    global inferencer  # noqa: PLW0603
-    inferencer = inf
-
-
 
 class AnxietyStreamProcessor:
-    """Incremental streaming and inference processor for video frames.
-
-    Decouples core landmark detection, optical flow transitions, and
-    anxiety classifier prediction from the underlying WebRTC transport layer.
-    """
-
     def __init__(
         self,
         result_queue: asyncio.Queue[dict[str, object]],
+        session_id: str = "unknown",
     ) -> None:
         self._result_queue = result_queue
+        self._session_id = session_id
+        self._last_saved_time = 0.0
 
-        from src.apex.modules.v2.apex_phase_spotter import ApexPhaseSpotter
-        self._spotter = ApexPhaseSpotter(mode="batch")
+        from src.apex.modules import ApexPhaseSpotterROI
+        from src.face.modules import FaceLandmark, FaceRoiPoints
+        from src.face.modules.face_aligner import FaceAligner
+        from src.optical_flow.modules import TVL1
+
+        self._landmarker = FaceLandmark()
+        self._aligner = FaceAligner()
+        self._tvl1 = TVL1(fast_mode=True)
+
+        self._roi_defs = [
+            frozenset(FaceRoiPoints.LEFT_EYE_POINTS),
+            frozenset(FaceRoiPoints.RIGHT_EYE_POINTS),
+            frozenset(FaceRoiPoints.LIPS_POINTS),
+            frozenset(FaceRoiPoints.LEFT_EYEBROW_POINTS),
+            frozenset(FaceRoiPoints.RIGHT_EYEBROW_POINTS),
+        ]
+        self._tile_size = (64, 64)
+        self._margin = 0.05
+        self._cols = 3
+        self._rows = math.ceil(len(self._roi_defs) / self._cols)
+
+        self._phase_spotter = ApexPhaseSpotterROI()
 
         self._inference_in_progress = False
         self._max_window_len = int(WINDOW_SECONDS * TARGET_FPS)
         self._landmark_thread_lock = threading.Lock()
 
-        # Incremental sliding buffers
-        self._last_frame: np.ndarray | None = None
-        self._last_landmarks = None
-        
+        self._last_crops: list[np.ndarray] | None = None
+
         self._magnitudes_buf: deque[float] = deque(maxlen=self._max_window_len - 1)
-        self._flows_buf: deque[list] = deque(maxlen=self._max_window_len - 1)
+        self._flows_buf: deque[np.ndarray] = deque(maxlen=self._max_window_len - 1)
         self._bboxes_buf: deque[dict | None] = deque(maxlen=self._max_window_len)
+
+        self._webrtc_latencies_buf: deque[float] = deque(maxlen=self._max_window_len)
+        self._landmark_latencies_buf: deque[float] = deque(maxlen=self._max_window_len)
+        self._flow_latencies_buf: deque[float] = deque(maxlen=self._max_window_len - 1)
+        self._timestamps_buf: deque[float] = deque(maxlen=self._max_window_len)
+
+        self.all_magnitudes: list[float] = []  # ponytail: global history for full-video graphs
 
         self._processing_queue = asyncio.Queue()
         self._process_loop_task = asyncio.create_task(self._process_loop())
 
-    def push_frame(self, img: np.ndarray, received_at: float) -> None:
-        """Push a new video frame to the processor queue."""
-        # Discard older frames if queue is backing up to keep latency minimal
+    def _get_face_bbox(self, landmarks, image: np.ndarray) -> dict | None:
+        try:
+            face = (
+                landmarks.face_landmarks[0]
+                if landmarks and landmarks.face_landmarks
+                else None
+            )
+            if face is None:
+                return None
+            xs = [lm.x for lm in face]
+            ys = [lm.y for lm in face]
+            return {
+                "x": float(min(xs)),
+                "y": float(min(ys)),
+                "width": float(max(xs) - min(xs)),
+                "height": float(max(ys) - min(ys)),
+            }
+        except Exception:
+            return None
+
+    def push_frame(
+        self, img: np.ndarray, received_at: float, webrtc_latency: float = 0.0
+    ) -> None:
         while self._processing_queue.qsize() > 2:
             try:
                 self._processing_queue.get_nowait()
                 self._processing_queue.task_done()
             except asyncio.QueueEmpty:
                 break
-
-        self._processing_queue.put_nowait((img, received_at))
+        self._processing_queue.put_nowait((img, received_at, webrtc_latency))
 
     async def _process_loop(self) -> None:
-        """Process incoming video frames sequentially from the queue."""
         while True:
             try:
-                img, received_at = await self._processing_queue.get()
+                img, received_at, webrtc_latency = await self._processing_queue.get()
             except asyncio.CancelledError:
                 break
             except Exception:
                 continue
 
             try:
-                await self._process_frame(img, received_at)
+                await self._process_frame(img, received_at, webrtc_latency)
             except Exception:
                 logger.error("Error in process_frame background task", exc_info=True)
             finally:
                 self._processing_queue.task_done()
 
-    async def _process_frame(self, img: np.ndarray, received_at: float) -> None:
-        """Perform landmark detection and optical flow transition computation for one frame."""
+    async def _process_frame(
+        self, img: np.ndarray, received_at: float, webrtc_latency: float
+    ) -> None:
         loop = asyncio.get_running_loop()
 
-        # 1. Run face landmark detection (thread-safely via executor)
-        def detect_landmarks_and_bbox(image):
+        def detect_and_crop(image):
             with self._landmark_thread_lock:
-                landmarks = self._spotter.face_landmark.detect(image)
-                bbox = self._spotter._get_face_bbox(landmarks, image)
-            return landmarks, bbox
+                landmarks = self._landmarker.detect(image)
+                bbox = self._get_face_bbox(landmarks, image)
 
-        landmarks, bbox = await loop.run_in_executor(None, detect_landmarks_and_bbox, img)
+                try:
+                    aligned = self._aligner.align(image=image, landmarks=landmarks)
+                    aligned_landmarks = self._landmarker.detect(aligned)
+                except Exception:
+                    aligned_landmarks = landmarks
 
-        # Send the real-time bbox overlay message immediately
+                crops = []
+                for roi_points in self._roi_defs:
+                    try:
+                        roi, _ = self._landmarker.crop_roi(
+                            image=image,
+                            landmark_result=aligned_landmarks,
+                            roi_points=roi_points,
+                            margin=self._margin,
+                            target_size=self._tile_size,
+                        )
+                    except Exception:
+                        roi = np.zeros(
+                            (self._tile_size[1], self._tile_size[0], 3), dtype=np.uint8
+                        )
+                    crops.append(roi)
+
+            return landmarks, bbox, crops
+
+        landmark_start = time.time()
+        landmarks, bbox, crops = await loop.run_in_executor(None, detect_and_crop, img)
+        landmark_latency_ms = (time.time() - landmark_start) * 1000
+
         latency_ms = (time.time() - received_at) * 1000
-        await self._result_queue.put({
-            "type": "bbox",
-            "bbox": bbox,
-            "latency_ms": round(latency_ms, 2)
-        })
+        logger.info(
+            "Frame processing: WebRTC latency = %.2f ms | Landmark & ROI latency = %.2f ms",
+            webrtc_latency,
+            landmark_latency_ms,
+        )
+        await self._result_queue.put(
+            {
+                "type": "bbox",
+                "bbox": bbox,
+                "latency_ms": round(latency_ms, 2),
+            }
+        )
 
-        # 2. Compute optical flow transition if we have a previous frame
-        prev_img = self._last_frame
-        prev_landmarks = self._last_landmarks
+        self._webrtc_latencies_buf.append(webrtc_latency)
+        self._landmark_latencies_buf.append(landmark_latency_ms)
+        self._timestamps_buf.append(received_at)
 
-        if prev_img is not None and prev_landmarks is not None:
-            def compute_transition(p_img, c_img, p_lm, c_lm):
+        prev_crops = self._last_crops
+
+        if prev_crops is not None:
+
+            def compute_batch_flow(p_crops, c_crops):
                 with self._landmark_thread_lock:
-                    return self._spotter.process_frame_pair(p_img, c_img, p_lm, c_lm)
+                    pairs = list(
+                        zip(p_crops, c_crops)
+                    )  # ponytail: zip replaces index loop
+                    flows = self._tvl1.compute_batch(pairs, download=True)
 
-            mag, flow_bucket = await loop.run_in_executor(
-                None, compute_transition, prev_img, img, prev_landmarks, landmarks
+                    flow_canvas = np.zeros(
+                        (
+                            self._rows * self._tile_size[1],
+                            self._cols * self._tile_size[0],
+                            2,
+                        ),
+                        dtype=np.float32,
+                    )
+                    roi_magnitudes = []
+                    for idx, flow in enumerate(flows):
+                        row, col = divmod(idx, self._cols)
+                        y1, y2 = (
+                            row * self._tile_size[1],
+                            (row + 1) * self._tile_size[1],
+                        )
+                        x1, x2 = (
+                            col * self._tile_size[0],
+                            (col + 1) * self._tile_size[0],
+                        )
+                        flow_canvas[y1:y2, x1:x2, :] = flow
+                        roi_magnitudes.append(
+                            float(np.mean(np.hypot(flow[..., 0], flow[..., 1])))
+                        )
+
+                    mag = float(np.mean(roi_magnitudes))
+                return mag, flow_canvas
+
+            flow_start = time.time()
+            mag, flow_canvas = await loop.run_in_executor(
+                None, compute_batch_flow, prev_crops, crops
+            )
+            flow_latency_ms = (time.time() - flow_start) * 1000
+            logger.info(
+                "Optical flow (TV-L1) calculation completed. Latency: %.2f ms",
+                flow_latency_ms,
             )
 
-            # Slide our buffers
             self._magnitudes_buf.append(mag)
-            self._flows_buf.append(flow_bucket)
+            self.all_magnitudes.append(mag)
+            self._flows_buf.append(flow_canvas)
             self._bboxes_buf.append(bbox)
+            self._flow_latencies_buf.append(flow_latency_ms)
         else:
             self._bboxes_buf.append(bbox)
 
-        self._last_frame = img
-        self._last_landmarks = landmarks
+        self._last_crops = crops
 
-        # 3. Trigger inference when the window is full
-        if len(self._magnitudes_buf) >= self._max_window_len - 1 and not self._inference_in_progress:
+        if (
+            len(self._magnitudes_buf) >= MIN_FRAMES  # ponytail: was _max_window_len-1; MIN_FRAMES cuts cold-start
+            and not self._inference_in_progress
+        ):
             self._inference_in_progress = True
-            # Copy state to avoid race conditions with next frame
             mags_copy = list(self._magnitudes_buf)
             flows_copy = list(self._flows_buf)
             bboxes_copy = list(self._bboxes_buf)
-            asyncio.create_task(self._run_inference_background(mags_copy, flows_copy, bboxes_copy, received_at))
+            webrtc_lats_copy = list(self._webrtc_latencies_buf)
+            landmark_lats_copy = list(self._landmark_latencies_buf)
+            flow_lats_copy = list(self._flow_latencies_buf)
+            timestamps_copy = list(self._timestamps_buf)
+            logger.info(
+                "Triggering background model inference (window buffer full with %d flow frames)",
+                len(flows_copy),
+            )
+            asyncio.create_task(
+                self._run_inference_background(
+                    mags_copy,
+                    flows_copy,
+                    bboxes_copy,
+                    received_at,
+                    webrtc_lats_copy,
+                    landmark_lats_copy,
+                    flow_lats_copy,
+                    timestamps_copy,
+                )
+            )
 
     async def _run_inference_background(
         self,
         mags: list[float],
-        flows: list[list[dict]],
+        flows: list[np.ndarray],
         bboxes: list[dict | None],
-        received_at: float
+        received_at: float,
+        webrtc_lats: list[float],
+        landmark_lats: list[float],
+        flow_lats: list[float],
+        timestamps: list[float],
     ) -> None:
         """Run the actual deep learning model inference in the background."""
+        import uuid  # ponytail: lazy import, no extra deps
+        import os
         try:
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
-                None, self._run_inference, mags, flows, bboxes, received_at
+                None,
+                self._run_inference,
+                mags,
+                flows,
+                bboxes,
+                received_at,
+                webrtc_lats,
+                landmark_lats,
+                flow_lats,
             )
             if result is not None:
+                if "latency_ms" in result and result["latency_ms"] > 0: # type: ignore
+                    # processing fps = jumlah frame / processing_time_in_seconds
+                    processing_time_sec = result["latency_ms"] / 1000.0 # type: ignore
+                    true_fps = len(timestamps) / processing_time_sec
+                    result["fps"] = round(true_fps, 2)
+                else:
+                    result["fps"] = 0.0
+
+                current_time = time.time()
+                if current_time - self._last_saved_time >= WINDOW_SECONDS:
+                    self._last_saved_time = current_time
+                    
+                    # ponytail: minimum log locally then minio, creating new version by unique id
+                    detection_id = uuid.uuid4().hex
+                    result["detection_id"] = detection_id
+                    
+                    log_data = json.dumps(result, indent=2).encode("utf-8")
+                    
+                    session_dir = os.path.join("logs", self._session_id)
+                    os.makedirs(session_dir, exist_ok=True)
+                    local_path = os.path.join(session_dir, f"detection_{detection_id}.json")
+                    with open(local_path, "wb") as f:
+                        f.write(log_data)
+                    
+                    try:
+                        from src.storage.modules import get_minio_storage
+                        get_minio_storage().upload_bytes(
+                            object_name=f"detections/{self._session_id}/detection_{detection_id}.json",
+                            data=log_data,
+                            content_type="application/json"
+                        )
+                    except Exception as e:
+                        logger.error("Failed to upload log to MinIO: %s", e)
+                    
+                    result["is_logged"] = True
+                else:
+                    result["is_logged"] = False
+                
                 await self._result_queue.put(result)
         except Exception:
             logger.error("Background inference failed", exc_info=True)
@@ -183,45 +349,117 @@ class AnxietyStreamProcessor:
     def _run_inference(
         self,
         mags: list[float],
-        flows: list[list[dict]],
+        flows: list[np.ndarray],
         bboxes: list[dict | None],
-        received_at: float
+        received_at: float,
+        webrtc_lats: list[float],
+        landmark_lats: list[float],
+        flow_lats: list[float],
     ) -> dict[str, object] | None:
-        """Execute prediction using pre-computed optical flow and landmarks.
+        from src.models.inferencer import (
+            get_loaded_inferencer,
+            load_inferencer_from_env,
+        )
 
-        This runs synchronously in the executor.
-        """
-        start_time = time.time()
-        if inferencer is None:
-            logger.warning("Inferencer not loaded — skipping prediction")
-            return None
+        inf = get_loaded_inferencer()
+        if inf is None:
+            try:
+                inf = load_inferencer_from_env()
+            except Exception:
+                logger.warning(
+                    "Inferencer not loaded and fallback env loading failed — skipping prediction",
+                    exc_info=True,
+                )
+                return None
+
         if len(mags) < 1:
             return None
 
+        smoothed_mags: list[float] = []
         try:
-            # Spot the onset-apex-offset phases based on magnitudes
-            with self._landmark_thread_lock:
-                apex_indices, phases = self._spotter.find_apex_phase(mags)
-            
-            # Convert phases to client representation
-            detected_phases = [
-                {
-                    "onset": int(phase["start"]),
-                    "apex": int(apex_idx),
-                    "offset": int(phase["end"])
-                }
-                for apex_idx, phase in phases.items()
+            from scipy.signal import savgol_filter
+
+            from src.apex.modules import ApexSmoother
+
+            window_length = ApexSmoother.calculate_window_length(len(mags))
+            polyorder = ApexSmoother.calculate_polyorder(window_length)
+            smoothed_mags = [
+                float(x) for x in savgol_filter(mags, window_length, polyorder)
             ]
 
-            # Run inferencer prediction from the pre-computed flows and magnitudes
-            mag_array = np.array(mags, dtype=np.float32)
-            result = inferencer._predict_from_frames(flows, mag_array)
+            # ponytail: lock dropped — detect_windows_from_signal only reads mags (a passed-in list snapshot)
+            windows, meta = self._phase_spotter.detect_windows_from_signal(mags)
+            actual_phases = meta.get("phases", {}) if meta.get("valid", False) else {}
+            detected_phases = [
+                {
+                    "onset": int(actual_phases.get(apex, {}).get("start", 0)),
+                    "apex": int(apex),
+                    "offset": int(actual_phases.get(apex, {}).get("end", 0)),
+                }
+                for _, apex, _ in windows
+            ]
+        except Exception:
+            detected_phases = []
+
+        try:
+            n_roi = len(self._roi_defs)
+            tile_h, tile_w = self._tile_size
+
+            frames = []
+            for canvas in flows:
+                canvas = np.asarray(
+                    canvas, dtype=np.float32
+                )  # ponytail: dropped _f suffix
+                tiles = []
+
+                for idx in range(n_roi):
+                    row, col = divmod(idx, self._cols)
+                    y1, y2 = row * tile_h, (row + 1) * tile_h
+                    x1, x2 = col * tile_w, (col + 1) * tile_w
+                    tiles.append(canvas[y1:y2, x1:x2, :].transpose(2, 0, 1))
+
+                frames.append(np.stack(tiles, axis=0))
+
+            if not frames:
+                return None
+
+            flow_array = np.stack(frames, axis=0)  # (T, N_roi, 2, tile_h, tile_w)
+            result = inf.predict_flow(flow_array)
+
         except Exception:
             logger.error("Inference pipeline failed", exc_info=True)
             return None
 
-        smoothed_mags = getattr(self._spotter, "smoothed_magnitudes", None)
-        smoothed_mags_list = [float(m) for m in smoothed_mags] if smoothed_mags is not None else []
+        # ponytail: six single-use stat temps inlined — helper avoids repeating the guard
+        def _stat(xs: list[float]) -> tuple[float, float]:
+            return (float(np.mean(xs)), float(np.max(xs))) if xs else (0.0, 0.0)
+
+        avg_webrtc, max_webrtc = _stat(webrtc_lats)
+        avg_landmark, max_landmark = _stat(landmark_lats)
+        avg_flow, max_flow = _stat(flow_lats)
+        spotting_ms = result.spotting_latency_ms or 0.0
+        model_ms = result.model_inference_latency_ms or 0.0
+        total_ms = (time.time() - received_at) * 1000
+
+        logger.info(
+            "Inference completed:\n"
+            "  - WebRTC: avg=%.2f ms max=%.2f ms\n"
+            "  - Landmark: avg=%.2f ms max=%.2f ms\n"
+            "  - TVL1 flow: avg=%.2f ms max=%.2f ms\n"
+            "  - Phase spotting: %.2f ms | Model: %.2f ms\n"
+            "  - Total: %.2f ms | label=%s confidence=%.4f",
+            avg_webrtc,
+            max_webrtc,
+            avg_landmark,
+            max_landmark,
+            avg_flow,
+            max_flow,
+            spotting_ms,
+            model_ms,
+            total_ms,
+            result.label,
+            result.confidence,
+        )
 
         return {
             "type": "prediction",
@@ -229,120 +467,67 @@ class AnxietyStreamProcessor:
             "confidence": round(result.confidence, 4),
             "prob_high": round(result.prob_high, 4),
             "prob_low": round(result.prob_low, 4),
-            "n_apex_detected": result.n_apex_detected,
+            "n_windows": result.n_windows,
             "n_frames": len(bboxes),
             "warning": result.warning,
-            "top_features": [
-                {
-                    "name": f.name,
-                    "value": round(f.value, 4),
-                    "saliency": round(f.saliency, 4),
-                    "direction": f.direction,
-                }
-                for f in result.top_features[:5]
-            ],
             "face_bboxes": bboxes,
             "magnitudes": mags,
-            "smoothed_magnitudes": smoothed_mags_list,
+            "smoothed_magnitudes": smoothed_mags,
             "detected_phases": detected_phases,
-            "latency_ms": round((time.time() - start_time) * 1000, 2),
+            "latency_ms": round(total_ms, 2),
+            "webrtc_latency_avg_ms": round(avg_webrtc, 2),
+            "webrtc_latency_max_ms": round(max_webrtc, 2),
+            "landmark_latency_avg_ms": round(avg_landmark, 2),
+            "landmark_latency_max_ms": round(max_landmark, 2),
+            "flow_latency_avg_ms": round(avg_flow, 2),
+            "flow_latency_max_ms": round(max_flow, 2),
+            "spotting_latency_ms": round(spotting_ms, 2),
+            "model_inference_latency_ms": round(model_ms, 2),
         }
 
     def close(self) -> None:
-        """Release resources when the processor is stopped."""
         if hasattr(self, "_process_loop_task"):
             self._process_loop_task.cancel()
-        self._spotter.close()
 
 
 class AnxietyVideoTrack(MediaStreamTrack):
-    """Receive a WebRTC video track and run inference on buffered frames.
-
-    Frames are accumulated for :data:`WINDOW_SECONDS` seconds at
-    :data:`TARGET_FPS`.  When the window is full the TV-L1 + inference
-    pipeline runs in a thread-pool so the event loop stays responsive.
-
-    Results are pushed into *result_queue* for the WebSocket sender.
-
-    Attributes:
-        kind: Always ``"video"`` (required by aiortc).
-    """
-
     kind = "video"
 
     def __init__(
         self,
         track: MediaStreamTrack,
         result_queue: asyncio.Queue[dict[str, object]],
+        session_id: str = "unknown",
     ) -> None:
-        """Initialise the video track handler.
-
-        Args:
-            track: The relayed video track from aiortc.
-            result_queue: Queue for sending prediction dicts to the
-                WebSocket sender task.
-        """
         super().__init__()
         self._track = track
-        self._result_queue = result_queue
-
-        self._processor = AnxietyStreamProcessor(result_queue)
-
-        self._window_start: float = time.time()
+        self._processor = AnxietyStreamProcessor(result_queue, session_id=session_id)
+        self._window_start: float | None = None
         self._last_frame_time: float = 0.0
         self._frame_interval: float = 1.0 / TARGET_FPS
 
-    @property
-    def _spotter(self):
-        return self._processor._spotter
-
-    @property
-    def _bboxes_buf(self):
-        return self._processor._bboxes_buf
-
-    @property
-    def _processing_queue(self):
-        return self._processor._processing_queue
-
-    @property
-    def _run_inference(self):
-        return self._processor._run_inference
-
-    @_run_inference.setter
-    def _run_inference(self, val):
-        self._processor._run_inference = val
-
-    @property
-    def _max_window_len(self):
-        return self._processor._max_window_len
-
-    async def recv(self) -> object:
-        """Receive, buffer, and optionally trigger inference.
-
-        Returns:
-            The original ``av.VideoFrame`` (passed through unchanged).
-        """
+    async def recv(self) -> object:  # pyright: ignore[reportIncompatibleMethodOverride]
         frame = await self._track.recv()
         now = time.time()
 
-        # Throttle — only keep frames matching TARGET_FPS
         if now - self._last_frame_time < self._frame_interval:
             return frame
         self._last_frame_time = now
 
-        # Convert aiortc VideoFrame → numpy BGR
-        img: np.ndarray = frame.to_ndarray(format="bgr24")
+        if self._window_start is None:
+            # Initialize base time on first frame to ignore ICE/DTLS setup delays
+            self._window_start = now - frame.time
 
-        self._processor.push_frame(img, now)
+        img: np.ndarray = frame.to_ndarray(format="bgr24")  # pyright: ignore[reportAttributeAccessIssue]
+
+        webrtc_latency = max(0.0, (now - (self._window_start + frame.time)) * 1000)  # pyright: ignore[reportOperatorIssue, reportAttributeAccessIssue]
+
+        self._processor.push_frame(img, now, webrtc_latency)
         return frame
 
     def stop(self) -> None:
-        """Release resources when the track is stopped."""
         super().stop()
         self._processor.close()
-
-
-# ── Per-session state ─────────────────────────────────────────────────
 
 
 @dataclass
@@ -368,16 +553,7 @@ class _SessionState:
         await self.pc.close()
 
 
-# ── Result sender coroutine ───────────────────────────────────────────
-
-
 async def _consume_track(track: AnxietyVideoTrack) -> None:
-    """Consume frames from the track to prevent buffer buildup.
-    
-    If the track is not added to the peer connection (because we don't 
-    need to send it back to the client), we must still continuously pull 
-    frames from it to drive the receive pipeline.
-    """
     try:
         while True:
             await track.recv()
@@ -389,28 +565,22 @@ async def _send_results(
     ws: WebSocket,
     queue: asyncio.Queue[dict[str, object]],
 ) -> None:
-    """Forward prediction results from *queue* to the WebSocket.
-
-    Sends a heartbeat JSON when no result arrives within
-    :data:`HEARTBEAT_TIMEOUT_SECONDS`.
-
-    Args:
-        ws: The open WebSocket connection.
-        queue: Queue populated by :class:`AnxietyVideoTrack`.
-    """
     while True:
         try:
             result = await asyncio.wait_for(
-                queue.get(), timeout=HEARTBEAT_TIMEOUT_SECONDS,
+                queue.get(),
+                timeout=HEARTBEAT_TIMEOUT_SECONDS,
             )
+            is_logged = result.pop("is_logged", False)
             raw = json.dumps(result)
-            pretty_raw = json.dumps(result, indent=2)
-            logger.info("Sending response to websocket:\n%s", pretty_raw)
+            if is_logged:
+                logger.info(
+                    "Sending response to websocket:\n%s", json.dumps(result, indent=2)
+                )
             await ws.send_text(raw)
         except asyncio.TimeoutError:
             raw = json.dumps({"type": "heartbeat"})
-            pretty_raw = json.dumps({"type": "heartbeat"}, indent=2)
-            logger.info("Sending heartbeat to websocket:\n%s", pretty_raw)
+            logger.info("Sending heartbeat to websocket")
             await ws.send_text(raw)
         except Exception:
             logger.warning("send_results stopped", exc_info=True)
@@ -419,65 +589,53 @@ async def _send_results(
 
 @router.websocket("/ws/rtc/{session_id}")
 async def webrtc_signaling(websocket: WebSocket, session_id: str) -> None:
-    """WebSocket endpoint for WebRTC signaling and result streaming.
-
-    Handles SDP offer/answer exchange, ICE candidate relay, and
-    prediction streaming for a single recording session identified by
-    *session_id*.
-
-    Args:
-        websocket: The incoming WebSocket connection.
-        session_id: Unique client-assigned session identifier.
-    """
     await websocket.accept()
     logger.info("Session %s connected", session_id)
 
     state = _SessionState(pc=RTCPeerConnection())
 
-    # ── ICE candidate from server → browser ───────────────────────────
     @state.pc.on("connectionstatechange")
     async def _on_connectionstatechange() -> None:
-        logger.info("Session %s WebRTC connection state changed to: %s", session_id, state.pc.connectionState)
-
+        logger.info(
+            "Session %s WebRTC connection state changed to: %s",
+            session_id,
+            state.pc.connectionState,
+        )
 
     @state.pc.on("icecandidate")
     async def _on_icecandidate(candidate: object) -> None:
         if candidate is not None:
-            raw = json.dumps({
-                "type": "candidate",
-                "candidate": {
-                    "candidate": candidate.to_sdp(),
-                    "sdpMid": candidate.sdpMid,
-                    "sdpMLineIndex": candidate.sdpMLineIndex,
-                },
-            })
+            raw = json.dumps(
+                {
+                    "type": "candidate",
+                    "candidate": {
+                        "candidate": candidate.to_sdp(),  # pyright: ignore[reportAttributeAccessIssue]
+                        "sdpMid": candidate.sdpMid,  # pyright: ignore[reportAttributeAccessIssue]
+                        "sdpMLineIndex": candidate.sdpMLineIndex,  # pyright: ignore[reportAttributeAccessIssue]
+                    },
+                }
+            )
             logger.info("Sending ICE candidate to session %s: %s", session_id, raw)
             await websocket.send_text(raw)
 
-    # ── Receive video track from browser ──────────────────────────────
     @state.pc.on("track")
     def _on_track(track: MediaStreamTrack) -> None:
         if track.kind == "video":
-            # Clean up existing track resources if a renegotiation provides a new one
             if state.consume_task is not None:
                 state.consume_task.cancel()
             if state.video_track is not None:
                 state.video_track.stop()
 
-            local_track = AnxietyVideoTrack(
-                relay.subscribe(track), state.result_queue,
-            )
+            local_track = AnxietyVideoTrack(track, state.result_queue, session_id=session_id)
+
             state.video_track = local_track
-            # Create a task to consume frames natively instead of sending back via PC
             state.consume_task = asyncio.create_task(_consume_track(local_track))
             logger.info("Video track received for session %s", session_id)
 
-    # ── Background: forward results to WebSocket ──────────────────────
     state.result_task = asyncio.create_task(
-        _send_results(websocket, state.result_queue),
+        _send_results(websocket, state.result_queue)
     )
 
-    # ── Main message loop ─────────────────────────────────────────────
     try:
         async for raw in websocket.iter_text():
             msg: dict[str, object] = json.loads(raw)
@@ -492,42 +650,43 @@ async def webrtc_signaling(websocket: WebSocket, session_id: str) -> None:
                 answer = await state.pc.createAnswer()
                 await state.pc.setLocalDescription(answer)
 
-                raw = json.dumps({
-                    "type": "answer",
-                    "sdp": state.pc.localDescription.sdp,
-                    "sdpType": state.pc.localDescription.type,
-                })
+                raw = json.dumps(
+                    {
+                        "type": "answer",
+                        "sdp": state.pc.localDescription.sdp,
+                        "sdpType": state.pc.localDescription.type,
+                    }
+                )
                 logger.info("Sending SDP answer to session %s: %s", session_id, raw)
                 await websocket.send_text(raw)
 
             elif msg_type == "candidate":
-                c = msg["candidate"]
-                if not isinstance(c, dict):
+                ice = msg["candidate"]  # ponytail: c→ice, c_str→sdp_str for clarity
+                if not isinstance(ice, dict):
                     logger.warning(
-                        "Invalid ICE candidate format from session %s",
-                        session_id,
+                        "Invalid ICE candidate format from session %s", session_id
                     )
                     continue
-                from aiortc.sdp import candidate_from_sdp
+                sdp_str = str(ice.get("candidate", ""))
 
-                c_str = str(c.get("candidate", ""))
-                
-                # End of candidates signal
-                if not c_str:
-                    logger.info("Received end of ICE candidates for session %s", session_id)
+                if not sdp_str:
+                    logger.info(
+                        "Received end of ICE candidates for session %s", session_id
+                    )
                     continue
 
                 try:
-                    if c_str.startswith("candidate:"):
-                        c_str = c_str.split(":", 1)[1]
-                    candidate = candidate_from_sdp(c_str)
-                    candidate.sdpMid = c.get("sdpMid")
-                    candidate.sdpMLineIndex = c.get("sdpMLineIndex")
+                    if sdp_str.startswith("candidate:"):
+                        sdp_str = sdp_str.split(":", 1)[1]
+                    candidate = candidate_from_sdp(sdp_str)
+                    candidate.sdpMid = ice.get("sdpMid")
+                    candidate.sdpMLineIndex = ice.get("sdpMLineIndex")
                     await state.pc.addIceCandidate(candidate)
                 except Exception as e:
                     logger.warning(
                         "Failed to parse ICE candidate from session %s: %s",
-                        session_id, e,
+                        session_id,
+                        e,
                     )
 
             elif msg_type == "stop":
@@ -538,10 +697,12 @@ async def webrtc_signaling(websocket: WebSocket, session_id: str) -> None:
     except Exception:
         logger.error("Session %s error", session_id, exc_info=True)
         try:
-            raw = json.dumps({
-                "type": "error",
-                "message": "Internal server error",
-            })
+            raw = json.dumps(
+                {
+                    "type": "error",
+                    "message": "Internal server error",
+                }
+            )
             logger.info("Sending error to session %s: %s", session_id, raw)
             await websocket.send_text(raw)
         except Exception:
@@ -553,51 +714,38 @@ async def webrtc_signaling(websocket: WebSocket, session_id: str) -> None:
 
 @router.websocket("/ws/stream/{session_id}")
 async def websocket_video_stream(websocket: WebSocket, session_id: str) -> None:
-    """WebSocket endpoint for raw binary video frame streaming and real-time result streaming.
-
-    Accepts JPEG/WebP/PNG binary images, processes them, and streams back
-    real-time 'bbox' and windowed 'prediction' JSON results.
-    """
     await websocket.accept()
     logger.info("Streaming session %s connected", session_id)
 
-    import cv2
-
     result_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
-    processor = AnxietyStreamProcessor(result_queue)
-
-    # Spawn result sender task
-    result_task = asyncio.create_task(
-        _send_results(websocket, result_queue),
-    )
-
+    processor = AnxietyStreamProcessor(result_queue, session_id=session_id)
+    result_task = asyncio.create_task(_send_results(websocket, result_queue))
     loop = asyncio.get_running_loop()
+
+    def _decode(payload: bytes) -> np.ndarray | None:
+        return cv2.imdecode(np.frombuffer(payload, np.uint8), cv2.IMREAD_COLOR)
 
     try:
         async for data in websocket.iter_bytes():
             if not data:
                 continue
 
-            # Decode the binary image asynchronously in the thread pool executor
-            def decode_and_verify(payload):
-                nparr = np.frombuffer(payload, np.uint8)
-                return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-            img = await loop.run_in_executor(None, decode_and_verify, data)
+            img = await loop.run_in_executor(None, _decode, data)
             if img is not None:
                 processor.push_frame(img, time.time())
             else:
-                logger.warning("Session %s: Failed to decode binary image frame", session_id)
+                logger.warning(
+                    "Session %s: Failed to decode binary image frame", session_id
+                )
 
     except WebSocketDisconnect:
         logger.info("Streaming session %s disconnected", session_id)
     except Exception:
         logger.error("Streaming session %s error", session_id, exc_info=True)
         try:
-            await websocket.send_text(json.dumps({
-                "type": "error",
-                "message": "Internal server error"
-            }))
+            await websocket.send_text(
+                json.dumps({"type": "error", "message": "Internal server error"})
+            )
         except Exception:
             pass
     finally:

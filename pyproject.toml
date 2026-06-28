@@ -3,12 +3,12 @@ name = "pulse-live"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = "==3.12.*"
 dependencies = [
   "cupy-cuda12x>=13.6.0",
   "fastapi>=0.135.1",
   "ipykernel>=7.1.0",
-  "mediapipe>=0.10.32",
+  "mediapipe==0.10.15",
   "numpy==1.26.4",
   "openpyxl>=3.1.5",
   "pandas>=2.3.3",
@@ -23,6 +23,8 @@ dependencies = [
   "av>=12.0.0",
   "seaborn>=0.13.2",
   "ipywidgets>=8.1.8",
+  "minio>=7.2.20",
+  "python-dotenv>=1.2.2",
 ]
 
 [[tool.uv.index]]
@@ -31,6 +33,7 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
+mediapipe = { path = "packages/mediapipe-0.10.15-cp312-cp312-linux_x86_64.whl" }
 torch = [
   { index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]

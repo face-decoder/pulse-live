@@ -3,9 +3,7 @@ from __future__ import annotations
 from itertools import combinations
 from typing import List, Tuple
 
-import numpy as np
 import torch
-from scipy.stats import circvar
 
 from ..constants.index import ROI_ORDER_DEFAULT, SYMMETRY_PAIRS_DEFAULT
 from .base_transform import BaseTransform
@@ -15,6 +13,7 @@ from .subject_sample import TransformOutput
 class BehavioralFeatures(BaseTransform):
     """
     Ekstrak 47-channel behavioral features dari raw flow window.
+    Dioptimalkan menggunakan PyTorch untuk akselerasi GPU dan vektorisasi murni.
 
     Input  x : (T, N_roi, 2, H, W)   [ROI mode]
     Output x : (T, C_behavioral)
@@ -31,10 +30,6 @@ class BehavioralFeatures(BaseTransform):
       symmetry       : len(symmetry_pairs) = 2
     ──────────────────
     Total             : 5*7 + 10 + 2 = 47
-
-    Notes:
-        - Hanya berlaku untuk ROI flow (5D).
-        - Untuk FullFace flow (4D), gunakan BehavioralFeaturesFullFace.
     """
 
     def __init__(
@@ -51,21 +46,27 @@ class BehavioralFeatures(BaseTransform):
         self.n_channels = self.n_roi * 7 + self.n_sync + self.n_sym
 
     def __call__(self, inp: TransformOutput) -> TransformOutput:
-        # inp.x: (T, N_roi, 2, H, W) — raw flow tensor
-        flow_np = inp.x.numpy()
+        flow = inp.x
+        if not isinstance(flow, torch.Tensor):
+            import numpy as np
+            flow = torch.from_numpy(flow)
 
-        if flow_np.ndim != 5:
+        if flow.ndim != 5:
             raise ValueError(
-                f"BehavioralFeatures expects 5D flow (T,N,2,H,W), got {flow_np.ndim}D. "
+                f"BehavioralFeatures expects 5D flow (T,N,2,H,W), got {flow.ndim}D. "
                 "Untuk FullFace gunakan BehavioralFeaturesFullFace."
             )
 
-        features = self._extract(flow_np)  # (T, C)
-        inp.x = torch.from_numpy(features)
+        device = flow.device
+        if not flow.is_cuda and torch.cuda.is_available():
+            flow = flow.cuda()
+
+        features = self._extract(flow)
+        
+        inp.x = features.to(device)
         return inp
 
-    def _extract(self, flow: np.ndarray) -> np.ndarray:
-        # Use the v12-style extractor logic (magnitude-masked circvar)
+    def _extract(self, flow: torch.Tensor) -> torch.Tensor:
         if flow.ndim != 5 or flow.shape[2] != 2:
             raise ValueError(f"Expects (T, N_roi, 2, H, W), got {flow.shape}")
 
@@ -73,72 +74,69 @@ class BehavioralFeatures(BaseTransform):
         u = flow[:, :, 0, :, :]
         v = flow[:, :, 1, :, :]
 
-        pixel_mag = np.sqrt(u ** 2 + v ** 2)
-        motion_energy = pixel_mag.mean(axis=(2, 3))
+        pixel_mag = torch.sqrt(u ** 2 + v ** 2)
+        motion_energy = pixel_mag.mean(dim=(2, 3))
 
-        angles = np.arctan2(v, u)
-        dir_consistency = np.zeros((T, N_roi), dtype=np.float32)
-        for t in range(T):
-            for r in range(N_roi):
-                ang_flat = angles[t, r].ravel()
-                mag_flat = pixel_mag[t, r].ravel()
-                mask = mag_flat > np.percentile(mag_flat, 25)
-                if mask.sum() > 5:
-                    cv = circvar(ang_flat[mask], high=np.pi, low=-np.pi)
-                    dir_consistency[t, r] = 1.0 - float(cv)
+        angles = torch.atan2(v, u)
+        
+        mag_flat = pixel_mag.view(T, N_roi, -1)
+        p25 = torch.quantile(mag_flat.float(), 0.25, dim=2, keepdim=True).to(mag_flat.dtype)
+        mask = mag_flat > p25
+        valid_counts = mask.sum(dim=2)
 
-        accel = np.zeros_like(motion_energy)
+        ang_flat = angles.view(T, N_roi, -1)
+        cos_ang = torch.cos(ang_flat) * mask
+        sin_ang = torch.sin(ang_flat) * mask
+
+        cos_sum = cos_ang.sum(dim=2)
+        sin_sum = sin_ang.sum(dim=2)
+
+        safe_counts = torch.where(valid_counts > 5, valid_counts, torch.ones_like(valid_counts))
+        cos_mean = cos_sum / safe_counts
+        sin_mean = sin_sum / safe_counts
+
+        R = torch.sqrt(cos_mean**2 + sin_mean**2)
+        dir_consistency = torch.where(valid_counts > 5, R, torch.zeros_like(R))
+
+        accel = torch.zeros_like(motion_energy)
         if T > 1:
-            accel[1:] = np.diff(motion_energy, axis=0)
+            accel[1:] = torch.diff(motion_energy, dim=0)
 
-        jerk = np.zeros_like(motion_energy)
+        jerk = torch.zeros_like(motion_energy)
         if T > 2:
-            jerk[2:] = np.diff(motion_energy, n=2, axis=0)
+            jerk[2:] = torch.diff(motion_energy, n=2, dim=0)
 
-        mean_dx = u.mean(axis=(2, 3))
-        mean_dy = v.mean(axis=(2, 3))
-        raw_mag = np.sqrt(mean_dx ** 2 + mean_dy ** 2)
+        mean_dx = u.mean(dim=(2, 3))
+        mean_dy = v.mean(dim=(2, 3))
+        raw_mag = torch.sqrt(mean_dx ** 2 + mean_dy ** 2)
 
-        mean_flow = np.stack([mean_dx, mean_dy], axis=-1)
-        sync = np.zeros((T, self.n_sync), dtype=np.float32)
+        mean_flow = torch.stack([mean_dx, mean_dy], dim=-1)
+        sync = torch.zeros((T, self.n_sync), dtype=flow.dtype, device=flow.device)
+        
         for idx, (i, j) in enumerate(self.roi_pairs):
             fi = mean_flow[:, i, :]
             fj = mean_flow[:, j, :]
-            dot = (fi * fj).sum(axis=1)
-            norm_i = np.linalg.norm(fi, axis=1) + 1e-8
-            norm_j = np.linalg.norm(fj, axis=1) + 1e-8
+            dot = (fi * fj).sum(dim=1)
+            norm_i = torch.linalg.norm(fi, dim=1) + 1e-8
+            norm_j = torch.linalg.norm(fj, dim=1) + 1e-8
             sync[:, idx] = dot / (norm_i * norm_j)
 
-        sym = np.zeros((T, self.n_sym), dtype=np.float32)
+        sym = torch.zeros((T, self.n_sym), dtype=flow.dtype, device=flow.device)
         for idx, (li, ri) in enumerate(self.symmetry_pairs):
             el = motion_energy[:, li]
             er = motion_energy[:, ri]
-            sym[:, idx] = np.abs(el - er) / (el + er + 1e-8)
+            sym[:, idx] = torch.abs(el - er) / (el + er + 1e-8)
 
-        features = np.concatenate([
-            mean_dx,
-            mean_dy,
-            raw_mag,
-            motion_energy,
-            dir_consistency,
-            accel,
-            jerk,
-            sync,
-            sym,
-        ], axis=1).astype(np.float32)
+        features = torch.cat([
+            mean_dx, mean_dy, raw_mag, motion_energy, dir_consistency, accel, jerk, sync, sym,
+        ], dim=1).float()
 
         return features
 
     def feature_names(self) -> List[str]:
         names = []
         for prefix in [
-            "mean_dx",
-            "mean_dy",
-            "raw_mag",
-            "energy",
-            "dir_consist",
-            "accel",
-            "jerk",
+            "mean_dx", "mean_dy", "raw_mag", "energy", "dir_consist", "accel", "jerk",
         ]:
             names.extend([f"{prefix}_{r}" for r in self.roi_order])
         for i, j in self.roi_pairs:
@@ -151,62 +149,58 @@ class BehavioralFeatures(BaseTransform):
 class BehavioralFeaturesFullFace(BaseTransform):
     """
     Behavioral features untuk FullFace flow (4D).
+    Dioptimalkan menggunakan PyTorch.
 
     Input  x : (T, 2, H, W)
     Output x : (T, C_ff)
-
-    Channels:
-      mean_dx     : 1
-      mean_dy     : 1
-      magnitude   : 1
-      energy      : 1
-      dir_consistency : 1
-      acceleration: 1
-      jerk        : 1
-    ─────────────
-    Total         : 7
     """
 
     N_CHANNELS: int = 7
 
     def __call__(self, inp: TransformOutput) -> TransformOutput:
-        flow_np = inp.x.numpy()
+        flow = inp.x
+        if not isinstance(flow, torch.Tensor):
+            import numpy as np
+            flow = torch.from_numpy(flow)
 
-        if flow_np.ndim != 4:
+        if flow.ndim != 4:
             raise ValueError(
-                f"BehavioralFeaturesFullFace expects 4D flow (T,2,H,W), got {flow_np.ndim}D."
+                f"BehavioralFeaturesFullFace expects 4D flow (T,2,H,W), got {flow.ndim}D."
             )
 
-        features = self._extract(flow_np)
-        inp.x = torch.from_numpy(features)
+        device = flow.device
+        if not flow.is_cuda and torch.cuda.is_available():
+            flow = flow.cuda()
+
+        features = self._extract(flow)
+        inp.x = features.to(device)
         return inp
 
-    def _extract(self, flow: np.ndarray) -> np.ndarray:
+    def _extract(self, flow: torch.Tensor) -> torch.Tensor:
         T = flow.shape[0]
-        u = flow[:, 0, :, :]  # (T, H, W) dx
-        v = flow[:, 1, :, :]  # (T, H, W) dy
+        u = flow[:, 0, :, :]
+        v = flow[:, 1, :, :]
 
-        mean_dx = u.mean(axis=(1, 2), keepdims=False)  # (T,)
-        mean_dy = v.mean(axis=(1, 2), keepdims=False)  # (T,)
-        magnitude = np.sqrt(mean_dx**2 + mean_dy**2)  # (T,)
+        mean_dx = u.mean(dim=(1, 2))
+        mean_dy = v.mean(dim=(1, 2))
+        magnitude = torch.sqrt(mean_dx**2 + mean_dy**2)
 
-        pixel_mag = np.sqrt(u**2 + v**2)
-        energy = pixel_mag.mean(axis=(1, 2))  # (T,)
+        pixel_mag = torch.sqrt(u**2 + v**2)
+        energy = pixel_mag.mean(dim=(1, 2))
 
-        # Vectorized circular variance
-        angles = np.arctan2(v, u)
-        cos_mean = np.cos(angles).mean(axis=(1, 2))
-        sin_mean = np.sin(angles).mean(axis=(1, 2))
-        dir_cons = np.sqrt(cos_mean**2 + sin_mean**2)  # (T,)
+        angles = torch.atan2(v, u)
+        cos_mean = torch.cos(angles).mean(dim=(1, 2))
+        sin_mean = torch.sin(angles).mean(dim=(1, 2))
+        dir_cons = torch.sqrt(cos_mean**2 + sin_mean**2)
 
-        accel = np.zeros(T, dtype=np.float32)
+        accel = torch.zeros(T, dtype=flow.dtype, device=flow.device)
         if T > 1:
-            accel[1:] = np.diff(energy)
+            accel[1:] = torch.diff(energy, dim=0)
 
-        jerk = np.zeros(T, dtype=np.float32)
+        jerk = torch.zeros(T, dtype=flow.dtype, device=flow.device)
         if T > 2:
-            jerk[2:] = np.diff(energy, n=2)
+            jerk[2:] = torch.diff(energy, n=2, dim=0)
 
-        return np.stack(
-            [mean_dx, mean_dy, magnitude, energy, dir_cons, accel, jerk], axis=1
-        ).astype(np.float32)  # (T, 7)
+        return torch.stack(
+            [mean_dx, mean_dy, magnitude, energy, dir_cons, accel, jerk], dim=1
+        ).float()

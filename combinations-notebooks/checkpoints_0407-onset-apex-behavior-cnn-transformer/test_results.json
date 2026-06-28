@@ -2,7 +2,7 @@
   "annotation_test": "/home/inadio/datasets/dataset_test_2/annotations-clips-v10.csv",
   "n_clips": 261,
   "n_subjects": 57,
-  "test_loss": 0.6552890420875006,
+  "test_loss": 0.6553160029610521,
   "test_acc": 0.7192982456140351,
   "test_f1_macro": 0.5494071146245059,
   "test_f1_weighted": 0.7775466333818738,

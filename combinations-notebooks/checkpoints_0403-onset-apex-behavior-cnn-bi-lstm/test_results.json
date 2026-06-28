@@ -1,12 +1,13 @@
 {
-  "annotation_test": "/home/inadio/datasets/dataset_test/clips-annotations-detail.csv",
-  "n_clips": 526,
-  "n_subjects": 103,
-  "test_loss": 1.3745254729557963,
-  "test_acc": 0.4368932038834951,
-  "test_f1_macro": 0.421124031007752,
-  "test_f1_weighted": 0.46472115601715974,
-  "test_bacc": 0.45666666666666667,
-  "test_recall_rendah": 0.5,
-  "test_recall_tinggi": 0.41333333333333333
+  "annotation_test": "/home/inadio/datasets/dataset_test_2/annotations-clips-v10.csv",
+  "n_clips": 261,
+  "n_subjects": 57,
+  "test_loss": 0.9662852538259405,
+  "test_acc": 0.7368421052631579,
+  "test_f1_macro": 0.48150394178289874,
+  "test_f1_weighted": 0.7815262838722032,
+  "test_bacc": 0.49423076923076925,
+  "test_recall_rendah": 0.2,
+  "test_recall_tinggi": 0.7884615384615384,
+  "best_threshold": 0.255
 }

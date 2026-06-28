@@ -46,14 +46,40 @@ class TVL1:
         if fast_mode:
             if hasattr(self.tvl1, "setScalesNumber"):
                 self.tvl1.setScalesNumber(3)
+            elif hasattr(self.tvl1, "setNumScales"):
+                self.tvl1.setNumScales(3)
+
             if hasattr(self.tvl1, "setWarpingsNumber"):
                 self.tvl1.setWarpingsNumber(2)
+            elif hasattr(self.tvl1, "setNumWarps"):
+                self.tvl1.setNumWarps(2)
+
             if hasattr(self.tvl1, "setInnerIterations"):
                 self.tvl1.setInnerIterations(20)
             if hasattr(self.tvl1, "setOuterIterations"):
                 self.tvl1.setOuterIterations(5)
+            if hasattr(self.tvl1, "setNumIterations") and not hasattr(self.tvl1, "setInnerIterations"):
+                self.tvl1.setNumIterations(100)
+
             if hasattr(self.tvl1, "setMedianFiltering"):
                 self.tvl1.setMedianFiltering(1)
+        else:
+            if hasattr(self.tvl1, "setScalesNumber"):
+                self.tvl1.setScalesNumber(5)
+            elif hasattr(self.tvl1, "setNumScales"):
+                self.tvl1.setNumScales(5)
+
+            if hasattr(self.tvl1, "setWarpingsNumber"):
+                self.tvl1.setWarpingsNumber(5)
+            elif hasattr(self.tvl1, "setNumWarps"):
+                self.tvl1.setNumWarps(5)
+
+            if hasattr(self.tvl1, "setInnerIterations"):
+                self.tvl1.setInnerIterations(30)
+            if hasattr(self.tvl1, "setOuterIterations"):
+                self.tvl1.setOuterIterations(10)
+            if hasattr(self.tvl1, "setNumIterations") and not hasattr(self.tvl1, "setInnerIterations"):
+                self.tvl1.setNumIterations(300)
 
 
     def _prepare_gray(self, frame: np.ndarray) -> np.ndarray:

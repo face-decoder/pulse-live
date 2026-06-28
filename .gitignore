@@ -8,3 +8,8 @@ wheels/
 .ruff_cache/
 .pytest_cache/
 .coverage
+.tmp/
+.env
+checkpoints*
+cache_*
+*cache*/

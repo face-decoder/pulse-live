@@ -1,3 +1,7 @@
+import numpy as np
+from scipy.signal import savgol_filter
+from typing import Sequence
+
 class ApexSmoother:
 
     WINDOW_LENGTH_PERCENTAGE = 0.1
@@ -14,7 +18,7 @@ class ApexSmoother:
             int: Panjang window yang digunakan untuk perataan.
         """
 
-        window_length = int(length / ApexSmoother.WINDOW_LENGTH_PERCENTAGE)
+        window_length = int(length * ApexSmoother.WINDOW_LENGTH_PERCENTAGE)
 
         # Jika panjang window genap, tambahkan 1 agar menjadi ganjil
         # Hal ini untuk savgol filter yang memerlukan panjang window ganjil
@@ -23,6 +27,14 @@ class ApexSmoother:
         # Membatasi panjang window antara 5 hingga 51
         # Strategi ini untuk menghindari over-smoothing pada sinyal pendek
         window_length = max(5, min(window_length, 51))
+
+        # Pengaman: pastikan window_length tidak melebihi panjang sinyal
+        if window_length > length:
+            window_length = length if length % 2 != 0 else length - 1
+            # Savgol filter memerlukan window_length > polyorder.
+            # Polyorder minimal adalah 2, sehingga window_length minimal harus 3.
+            if window_length < 3:
+                window_length = 3
 
         return window_length
     
@@ -46,3 +58,9 @@ class ApexSmoother:
                 return 3
             case _:
                 return 4
+
+    @staticmethod
+    def smooth(signal: Sequence[float]) -> np.ndarray:
+        window_length = ApexSmoother.calculate_window_length(len(signal))   
+        polyorder = ApexSmoother.calculate_polyorder(window_length)
+        return np.asarray(savgol_filter(signal, window_length, polyorder), dtype=np.float32)
