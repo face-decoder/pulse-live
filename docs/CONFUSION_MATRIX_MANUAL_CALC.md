@@ -3,15 +3,13 @@
 ## Confusion Matrix
 
 | Actual \ Predicted | Anxiety Rendah | Anxiety Tinggi |
-|---|---:|---:|
-| Anxiety Rendah | 9 | 6 |
-| Anxiety Tinggi | 6 | 12 |
+| ------------------ | -------------: | -------------: |
+| Anxiety Rendah     |              9 |              6 |
+| Anxiety Tinggi     |              6 |             12 |
 
 Total data:
 
-\[
-9 + 6 + 6 + 12 = 33
-\]
+[9 + 6 + 6 + 12 = 33]
 
 ---
 
@@ -19,9 +17,7 @@ Total data:
 
 Rumus accuracy:
 
-\[
-\text{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN}
-\]
+[text{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN}]
 
 Dengan kelas **Anxiety Tinggi** sebagai positive class:
 
@@ -32,17 +28,11 @@ Dengan kelas **Anxiety Tinggi** sebagai positive class:
 
 Substitusi:
 
-\[
-\text{Accuracy} = \frac{12 + 9}{12 + 9 + 6 + 6}
-\]
+[text{Accuracy} = \frac{12 + 9}{12 + 9 + 6 + 6}]
 
-\[
-= \frac{21}{33}
-\]
+[= \frac{21}{33}]
 
-\[
-= 0.6364
-\]
+[= 0.6364]
 
 \[
 = 63.64\%
@@ -172,8 +162,8 @@ Untuk kelas ini:
 2 \times \frac{0.60 \times 0.60}{0.60+0.60}
 \]
 
-\[
-=
+# \[
+
 0.60
 \]
 
@@ -213,8 +203,8 @@ Untuk kelas ini:
 2 \times \frac{0.6667 \times 0.6667}{0.6667+0.6667}
 \]
 
-\[
-=
+# \[
+
 0.6667
 \]
 
@@ -222,10 +212,10 @@ Untuk kelas ini:
 
 # Ringkasan Classification Report
 
-| Class | Precision | Recall | F1-score | Support |
-|---|---:|---:|---:|---:|
-| Anxiety Rendah | 0.60 | 0.60 | 0.60 | 15 |
-| Anxiety Tinggi | 0.67 | 0.67 | 0.67 | 18 |
+| Class          | Precision | Recall | F1-score | Support |
+| -------------- | --------: | -----: | -------: | ------: |
+| Anxiety Rendah |      0.60 |   0.60 |     0.60 |      15 |
+| Anxiety Tinggi |      0.67 |   0.67 |     0.67 |      18 |
 
 ---
 
@@ -283,24 +273,24 @@ Support:
 \frac{(0.60 \times 15) + (0.6667 \times 18)}{33}
 \]
 
-\[
-=
-\frac{9 + 12}{33}
-=
+# \[
+
+# \frac{9 + 12}{33}
+
 0.6364
 \]
 
 ## Weighted Recall
 
-\[
-=
+# \[
+
 0.6364
 \]
 
 ## Weighted F1-score
 
-\[
-=
+# \[
+
 0.6364
 \]
 
