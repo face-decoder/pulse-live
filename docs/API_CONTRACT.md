@@ -201,7 +201,20 @@ If no face is detected in the current frame, `bbox` is `null`:
 
 ---
 
-### 4. Heartbeat Messages (Server -> Client)
+### 4. Alert Messages (Server -> Client)
+
+Sent when specific conditions are met during inference. Currently used to notify when `anxiety_tinggi` is detected.
+```json
+{
+  "type": "alert",
+  "alert_type": "anxiety_tinggi",
+  "message": "Terdeteksi Tingkat Kecemasan Tinggi"
+}
+```
+
+---
+
+### 5. Heartbeat Messages (Server -> Client)
 
 Sent every **30 seconds** of inactivity to keep connection hooks alive.
 ```json
@@ -212,7 +225,7 @@ Sent every **30 seconds** of inactivity to keep connection hooks alive.
 
 ---
 
-### 5. Error Messages (Server -> Client)
+### 6. Error Messages (Server -> Client)
 
 Returned when the server encounters a critical processing or connection issue.
 ```json

@@ -15,16 +15,9 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 LOG_PATH = Path("real-time.log")
 _NOT_FOUND = HTTPException(status_code=404, detail="Log file not found")
 
-# Matches the log prefix so we can strip it
 _LOG_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+ - .+? - INFO - Sending response to websocket:")
 
-
 def _extract_predictions(lines: Iterator[str]) -> Iterator[dict]:
-    """Parse log lines and yield structured prediction summaries.
-
-    Scans for 'Sending response to websocket:' blocks, parses the embedded
-    JSON, and yields only prediction entries with the relevant fields.
-    """
     buf: list[str] = []
     capturing = False
 
@@ -38,7 +31,6 @@ def _extract_predictions(lines: Iterator[str]) -> Iterator[dict]:
 
         if capturing:
             buf.append(line)
-            # JSON block ends at a lone closing brace
             if line == "}":
                 capturing = False
                 try:
@@ -51,7 +43,6 @@ def _extract_predictions(lines: Iterator[str]) -> Iterator[dict]:
                     buf = []
                     continue
 
-                # ponytail: yield only what the caller asked for
                 yield {
                     "label": data.get("label"),
                     "confidence": data.get("confidence"),
@@ -67,7 +58,6 @@ def _extract_predictions(lines: Iterator[str]) -> Iterator[dict]:
 def read_log(
     lines: int = Query(default=200, ge=1, le=50_000, description="Number of tail lines to return"),
 ) -> PlainTextResponse:
-    """Return the last *lines* raw log lines as plain text."""
     if not LOG_PATH.exists():
         raise _NOT_FOUND
     with LOG_PATH.open("r", encoding="utf-8", errors="replace") as f:
@@ -78,11 +68,6 @@ def read_log(
 def log_summary(
     last: int | None = Query(default=None, ge=1, description="Return last N predictions. If not provided, returns all."),
 ) -> list[dict]:
-    """Parse real-time.log and return the prediction results.
-
-    Each entry contains: label, confidence, detected_phases, magnitudes,
-    smoothed_magnitudes, latency_ms.
-    """
     if not LOG_PATH.exists():
         raise _NOT_FOUND
     with LOG_PATH.open("r", encoding="utf-8", errors="replace") as f:
@@ -96,28 +81,15 @@ def log_summary(
 async def stream_log(
     history: int = Query(default=5, ge=0, le=100, description="Historical predictions to send on connect"),
 ) -> StreamingResponse:
-    """Server-Sent Events: send last *history* parsed predictions immediately,
-    then stream new prediction results as they arrive.
-
-    Each SSE event is a JSON object with: label, confidence, detected_phases,
-    magnitudes, smoothed_magnitudes, latency_ms.
-
-    Connect with:
-        const es = new EventSource("/logs/stream?history=5");
-        es.onmessage = e => console.log(JSON.parse(e.data));
-    """
     if not LOG_PATH.exists():
         raise _NOT_FOUND
 
     async def _stream():
         with LOG_PATH.open("r", encoding="utf-8", errors="replace") as f:
-            # Send historical predictions immediately
             historical = list(deque(_extract_predictions(f), maxlen=history))
             for entry in historical:
                 yield f"data: {json.dumps(entry)}\n\n"
 
-            # Now tail for new predictions
-            # f is positioned at EOF after the historical scan
             buf: list[str] = []
             capturing = False
 

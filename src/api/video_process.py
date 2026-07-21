@@ -1,11 +1,3 @@
-"""WebSocket endpoint for video file processing via real-time streaming.
-
-This module has been refactored to align with the WebRTC endpoint's
-streaming architecture. It pipes uploaded video chunks through FFmpeg
-to extract frames on the fly, which are then pushed into the shared
-AnxietyStreamProcessor for incremental inference.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +8,7 @@ import numpy as np
 import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from src.api.webrtc import AnxietyStreamProcessor, _send_results
+from src.api.webrtc import AnxietyStreamProcessor
 from src.api.config import TARGET_FPS
 
 logger = logging.getLogger(__name__)
@@ -28,22 +20,12 @@ def _decode(payload: bytes) -> np.ndarray | None:
 
 @router.websocket("/ws/video/{session_id}")
 async def websocket_video_process(websocket: WebSocket, session_id: str) -> None:
-    """WebSocket endpoint for streaming video processing.
-
-    **Protocol**:
-    1. Client sends a JSON `{"type": "start", "filename": "...", "size": N}`
-    2. Client streams binary chunks of the video file.
-    3. Server decodes chunks on-the-fly via FFmpeg and runs incremental inference.
-    4. Server streams back JSON results (bounding box, predictions) in real-time.
-    5. Client sends `{"type": "end"}` when upload is complete.
-    """
     await websocket.accept()
     logger.info("Video streaming session %s connected", session_id)
 
     result_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
     processor = AnxietyStreamProcessor(result_queue, session_id=session_id)
-    
-    # ponytail: intercept results to build a final summary without bloating the core processor
+
     async def _send_results_with_summary():
         summary = {
             "total_windows": 0,
@@ -51,13 +33,13 @@ async def websocket_video_process(websocket: WebSocket, session_id: str) -> None
             "avg_confidence": 0.0,
         }
         confidences = []
-        
+
         from src.api.config import HEARTBEAT_TIMEOUT_SECONDS
         while True:
             try:
                 result = await asyncio.wait_for(result_queue.get(), timeout=HEARTBEAT_TIMEOUT_SECONDS)
                 result.pop("is_logged", False)
-                
+
                 if result.get("type") in ("bbox", "prediction"):
                     if result.get("type") == "prediction":
                         summary["total_windows"] += 1
@@ -66,11 +48,10 @@ async def websocket_video_process(websocket: WebSocket, session_id: str) -> None
                             summary["anxiety_detected"] += 1
                         if "confidence" in result and isinstance(result["confidence"], (int, float)):
                             confidences.append(float(result["confidence"]))
-                        
+
                         if confidences:
                             summary["avg_confidence"] = round(sum(confidences) / len(confidences), 4)
-                        
-                    # ponytail: global graph injected incrementally for FE plotting (on every frame/prediction)
+
                     mags = processor.all_magnitudes.copy()
                     if len(mags) > 0:
                         if len(mags) > 5:
@@ -80,7 +61,7 @@ async def websocket_video_process(websocket: WebSocket, session_id: str) -> None
                                 wl = ApexSmoother.calculate_window_length(len(mags))
                                 po = ApexSmoother.calculate_polyorder(wl)
                                 summary["smoothed_magnitudes"] = [float(x) for x in savgol_filter(mags, wl, po)]
-                                
+
                                 windows, meta = processor._phase_spotter.detect_windows_from_signal(mags)
                                 actual = meta.get("phases", {}) if meta.get("valid", False) else {}
                                 summary["detected_phases"] = [
@@ -93,31 +74,30 @@ async def websocket_video_process(websocket: WebSocket, session_id: str) -> None
                         else:
                             summary["smoothed_magnitudes"] = mags
                             summary["detected_phases"] = []
-                        
+
                         summary["magnitudes"] = mags
-                        
+
                     await websocket.send_text(json.dumps(result))
-                    # Only send summary if there's actually graph data to show
                     if "magnitudes" in summary:
                         await websocket.send_text(json.dumps({"type": "summary", "data": summary}))
                     continue
-                
+
                 if result.get("type") == "status" and result.get("status") == "completed":
                     await websocket.send_text(json.dumps(result))
                     break
-                    
+
                 await websocket.send_text(json.dumps(result))
             except asyncio.TimeoutError:
                 await websocket.send_text(json.dumps({"type": "heartbeat"}))
             except Exception:
                 break
-                
+
     result_task = asyncio.create_task(_send_results_with_summary())
-    
+
     proc: asyncio.subprocess.Process | None = None
     read_task: asyncio.Task | None = None
     loop = asyncio.get_running_loop()
-    
+
     try:
         raw_msg = await websocket.receive_text()
         meta = json.loads(raw_msg)
@@ -141,8 +121,6 @@ async def websocket_video_process(websocket: WebSocket, session_id: str) -> None
             })
         )
 
-        # ponytail: minimum ffmpeg pipeline for real-time extraction without waiting for EOF
-        # Force the frame rate to TARGET_FPS so model window constraints stay valid regardless of input FPS
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg", "-i", "pipe:0", "-r", str(TARGET_FPS), "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
             stdin=asyncio.subprocess.PIPE,
@@ -167,7 +145,6 @@ async def websocket_video_process(websocket: WebSocket, session_id: str) -> None
                         buffer = buffer[end+2:]
                         img = await loop.run_in_executor(None, _decode, jpg_data)
                         if img is not None:
-                            # Push into the same processor webrtc uses
                             processor.push_frame(img, time.time())
                     else:
                         break
@@ -198,14 +175,12 @@ async def websocket_video_process(websocket: WebSocket, session_id: str) -> None
         if proc and proc.stdin:
             proc.stdin.close()
             await proc.wait()
-            
+
         if read_task:
             await read_task
 
-        # Ensure we wait for any pending frames to finish processing
         await processor._processing_queue.join()
-        
-        # ponytail: force a final prediction for the leftover frames (or short videos)
+
         if not processor._inference_in_progress and len(processor._magnitudes_buf) > 0:
             processor._inference_in_progress = True
             asyncio.create_task(
@@ -229,8 +204,7 @@ async def websocket_video_process(websocket: WebSocket, session_id: str) -> None
             "status": "completed",
             "message": "Video streaming processing completed successfully."
         })
-        
-        # Give result task a moment to flush the completed status
+
         await asyncio.sleep(0.5)
 
     except WebSocketDisconnect:
@@ -238,9 +212,7 @@ async def websocket_video_process(websocket: WebSocket, session_id: str) -> None
     except Exception:
         logger.error("Video streaming session %s error", session_id, exc_info=True)
         try:
-            await websocket.send_text(
-                json.dumps({"type": "error", "message": "Internal server error"})
-            )
+            await websocket.send_text(json.dumps({"type": "error", "message": "Internal server error"}))
         except Exception:
             pass
     finally:

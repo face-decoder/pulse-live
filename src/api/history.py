@@ -10,18 +10,17 @@ router = APIRouter(prefix="/history", tags=["History"])
 
 @router.get("")
 def list_history() -> dict[str, list[dict]]:
-    """Get all detection sessions and their count of detections."""
     try:
         storage = get_minio_storage()
         objects = storage.list_objects(prefix="detections/", recursive=True)
-        
+
         session_counts = {}
         for obj in objects:
             parts = obj.split("/")
             if len(parts) >= 3 and parts[-1].endswith(".json"):
                 session_id = parts[-2]
                 session_counts[session_id] = session_counts.get(session_id, 0) + 1
-        
+
         result = [{"session_id": sid, "total_detections": count} for sid, count in session_counts.items()]
         return {"sessions": result}
     except Exception as e:
@@ -30,11 +29,10 @@ def list_history() -> dict[str, list[dict]]:
 
 @router.get("/latencies/summary")
 def get_global_latencies_summary() -> dict:
-    """Get the average latencies across all detections in all sessions."""
     try:
         storage = get_minio_storage()
         objects = storage.list_objects(prefix="detections/", recursive=True)
-        
+
         webrtc_lats = []
         landmark_lats = []
         flow_lats = []
@@ -42,13 +40,13 @@ def get_global_latencies_summary() -> dict:
         inference_lats = []
         total_lats = []
         fps_list = []
-        
+
         for obj in objects:
             if obj.endswith(".json"):
                 try:
                     data_bytes = storage.get_object_bytes(obj)
                     data = json.loads(data_bytes.decode("utf-8"))
-                    
+
                     if "webrtc_latency_avg_ms" in data:
                         webrtc_lats.append(data["webrtc_latency_avg_ms"])
                     if "landmark_latency_avg_ms" in data:
@@ -64,11 +62,10 @@ def get_global_latencies_summary() -> dict:
                     if "fps" in data:
                         fps_list.append(data["fps"])
                     elif "n_frames" in data:
-                        # Fallback for old history files generated before true fps was tracked
                         fps_list.append(round((data["n_frames"] + 1) / WINDOW_SECONDS, 2))
                 except Exception as e:
                     logger.warning("Failed to fetch or parse %s: %s", obj, e)
-                    
+
         def avg(lst: list) -> float:
             return round(sum(lst) / len(lst), 2) if lst else 0.0
 
@@ -92,18 +89,17 @@ def get_global_latencies_summary() -> dict:
 
 @router.get("/{session_id}")
 def get_session_detections(session_id: str) -> dict[str, list[str]]:
-    """Get all detection IDs within a specific session."""
     try:
         storage = get_minio_storage()
         objects = storage.list_objects(prefix=f"detections/{session_id}/", recursive=False)
-        
+
         detections = []
         for obj in objects:
             filename = obj.split("/")[-1]
             if filename.endswith(".json"):
                 detection_id = filename.replace("detection_", "").replace(".json", "")
                 detections.append(detection_id)
-                
+
         return {"detections": detections}
     except Exception as e:
         logger.error("Failed to list history", exc_info=True)
@@ -111,7 +107,6 @@ def get_session_detections(session_id: str) -> dict[str, list[str]]:
 
 @router.get("/{session_id}/{detection_id}/summary")
 def get_detection_summary(session_id: str, detection_id: str) -> dict:
-    """Get the detail of a specific detection result."""
     try:
         storage = get_minio_storage()
         object_name = f"detections/{session_id}/detection_{detection_id}.json"
@@ -119,7 +114,7 @@ def get_detection_summary(session_id: str, detection_id: str) -> dict:
             data_bytes = storage.get_object_bytes(object_name)
         except Exception:
             raise HTTPException(status_code=404, detail="Detection not found")
-            
+
         return json.loads(data_bytes.decode("utf-8"))
     except HTTPException:
         raise
@@ -129,11 +124,10 @@ def get_detection_summary(session_id: str, detection_id: str) -> dict:
 
 @router.get("/{session_id}/batch")
 def get_session_batch(session_id: str) -> dict[str, list[dict]]:
-    """Get all detection details for a specific session in a single batch."""
     try:
         storage = get_minio_storage()
         objects = storage.list_objects(prefix=f"detections/{session_id}/", recursive=False)
-        
+
         results = []
         for obj in objects:
             if obj.endswith(".json"):
@@ -142,8 +136,8 @@ def get_session_batch(session_id: str) -> dict[str, list[dict]]:
                     results.append(json.loads(data_bytes.decode("utf-8")))
                 except Exception as e:
                     logger.warning("Failed to fetch or parse %s: %s", obj, e)
-                    
-                    
+
+
         return {"detections": results}
     except Exception as e:
         logger.error("Failed to fetch batch for session %s", session_id, exc_info=True)
@@ -151,11 +145,10 @@ def get_session_batch(session_id: str) -> dict[str, list[dict]]:
 
 @router.get("/{session_id}/latencies")
 def get_session_latencies(session_id: str) -> dict[str, list[dict]]:
-    """Get a summary of processing latencies for all detections in a session."""
     try:
         storage = get_minio_storage()
         objects = storage.list_objects(prefix=f"detections/{session_id}/", recursive=False)
-        
+
         results = []
         for obj in objects:
             if obj.endswith(".json"):
@@ -173,7 +166,7 @@ def get_session_latencies(session_id: str) -> dict[str, list[dict]]:
                     })
                 except Exception as e:
                     logger.warning("Failed to fetch or parse %s: %s", obj, e)
-                    
+
         return {"latencies": results}
     except Exception as e:
         logger.error("Failed to fetch latencies for session %s", session_id, exc_info=True)

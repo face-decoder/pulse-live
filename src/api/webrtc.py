@@ -193,9 +193,7 @@ class AnxietyStreamProcessor:
 
             def compute_batch_flow(p_crops, c_crops):
                 with self._landmark_thread_lock:
-                    pairs = list(
-                        zip(p_crops, c_crops)
-                    )  # ponytail: zip replaces index loop
+                    pairs = list(zip(p_crops, c_crops))
                     flows = self._tvl1.compute_batch(pairs, download=True)
 
                     flow_canvas = np.zeros(
@@ -246,7 +244,7 @@ class AnxietyStreamProcessor:
         self._last_crops = crops
 
         if (
-            len(self._magnitudes_buf) >= MIN_FRAMES  # ponytail: was _max_window_len-1; MIN_FRAMES cuts cold-start
+            len(self._magnitudes_buf) >= MIN_FRAMES
             and not self._inference_in_progress
         ):
             self._inference_in_progress = True
@@ -303,7 +301,6 @@ class AnxietyStreamProcessor:
             )
             if result is not None:
                 if "latency_ms" in result and result["latency_ms"] > 0: # type: ignore
-                    # processing fps = jumlah frame / processing_time_in_seconds
                     processing_time_sec = result["latency_ms"] / 1000.0 # type: ignore
                     true_fps = len(timestamps) / processing_time_sec
                     result["fps"] = round(true_fps, 2)
@@ -313,19 +310,18 @@ class AnxietyStreamProcessor:
                 current_time = time.time()
                 if current_time - self._last_saved_time >= WINDOW_SECONDS:
                     self._last_saved_time = current_time
-                    
-                    # ponytail: minimum log locally then minio, creating new version by unique id
+
                     detection_id = uuid.uuid4().hex
                     result["detection_id"] = detection_id
-                    
+
                     log_data = json.dumps(result, indent=2).encode("utf-8")
-                    
+
                     session_dir = os.path.join("logs", self._session_id)
                     os.makedirs(session_dir, exist_ok=True)
                     local_path = os.path.join(session_dir, f"detection_{detection_id}.json")
                     with open(local_path, "wb") as f:
                         f.write(log_data)
-                    
+
                     try:
                         from src.storage.modules import get_minio_storage
                         get_minio_storage().upload_bytes(
@@ -335,12 +331,19 @@ class AnxietyStreamProcessor:
                         )
                     except Exception as e:
                         logger.error("Failed to upload log to MinIO: %s", e)
-                    
+
                     result["is_logged"] = True
                 else:
                     result["is_logged"] = False
-                
+
                 await self._result_queue.put(result)
+
+                if result.get("label") == "anxiety_tinggi":
+                    await self._result_queue.put({
+                        "type": "alert",
+                        "alert_type": "anxiety_tinggi",
+                        "message": "Terdeteksi Tingkat Kecemasan Tinggi"
+                    })
         except Exception:
             logger.error("Background inference failed", exc_info=True)
         finally:
@@ -383,11 +386,8 @@ class AnxietyStreamProcessor:
 
             window_length = ApexSmoother.calculate_window_length(len(mags))
             polyorder = ApexSmoother.calculate_polyorder(window_length)
-            smoothed_mags = [
-                float(x) for x in savgol_filter(mags, window_length, polyorder)
-            ]
+            smoothed_mags = [float(x) for x in savgol_filter(mags, window_length, polyorder)]
 
-            # ponytail: lock dropped — detect_windows_from_signal only reads mags (a passed-in list snapshot)
             windows, meta = self._phase_spotter.detect_windows_from_signal(mags)
             actual_phases = meta.get("phases", {}) if meta.get("valid", False) else {}
             detected_phases = [
@@ -407,9 +407,7 @@ class AnxietyStreamProcessor:
 
             frames = []
             for canvas in flows:
-                canvas = np.asarray(
-                    canvas, dtype=np.float32
-                )  # ponytail: dropped _f suffix
+                canvas = np.asarray(canvas, dtype=np.float32)
                 tiles = []
 
                 for idx in range(n_roi):
@@ -430,7 +428,6 @@ class AnxietyStreamProcessor:
             logger.error("Inference pipeline failed", exc_info=True)
             return None
 
-        # ponytail: six single-use stat temps inlined — helper avoids repeating the guard
         def _stat(xs: list[float]) -> tuple[float, float]:
             return (float(np.mean(xs)), float(np.max(xs))) if xs else (0.0, 0.0)
 
@@ -515,8 +512,7 @@ class AnxietyVideoTrack(MediaStreamTrack):
         self._last_frame_time = now
 
         if self._window_start is None:
-            # Initialize base time on first frame to ignore ICE/DTLS setup delays
-            self._window_start = now - frame.time
+            self._window_start = now - frame.time  # pyright: ignore[reportOperatorIssue, reportAttributeAccessIssue]
 
         img: np.ndarray = frame.to_ndarray(format="bgr24")  # pyright: ignore[reportAttributeAccessIssue]
 
