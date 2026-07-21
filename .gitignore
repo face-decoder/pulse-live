@@ -13,3 +13,4 @@ wheels/
 checkpoints*
 cache_*
 *cache*/
+logs/
