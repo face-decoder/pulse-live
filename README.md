@@ -1,38 +1,97 @@
 # Pulse Live
 
-Facial micro-expression detection and real-time analysis system using computer vision, optical flow, and deep learning techniques.
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-CUDA_12.8-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.135-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![CUDA](https://img.shields.io/badge/NVIDIA-CUDA_12.x-76B900?style=for-the-badge&logo=nvidia&logoColor=white)](https://developer.nvidia.com/cuda-toolkit)
+[![Docker](https://img.shields.io/badge/Docker-MinIO_S3-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](file:///home/inadio/skripkir/pulse-live/LICENSE)
+
+Real-time facial micro-expression detection, phase-based apex spotting, and deep learning analysis platform using computer vision, optical flow, and WebRTC streaming.
 
 ---
 
-## Project Overview
+## Table of Contents
 
-**Pulse Live** is an end-to-end computer vision and deep learning platform designed for real-time and offline detection, spotting, and classification of facial micro-expressions. Micro-expressions are subtle, fleeting involuntary facial movements that reveal underlying emotional states and psychological responses.
-
-The system incorporates a multi-stage analysis pipeline:
-- **Face Mesh & Landmark Alignment**: Real-time tracking and alignment using MediaPipe FaceMesh to isolate key Regions of Interest (ROIs) such as eyebrows, eyes, and mouth.
-- **Phase-Based Apex Spotting**: Utilizing Riesz Pyramids and motion magnitude analysis to spot onset, apex, and offset frames of micro-movements.
-- **Dense Optical Flow Extraction**: Extracting spatial-temporal motion dynamics via TV-L1 optical flow algorithms (accelerated with CUDA / CuPy).
-- **Deep Learning Classification**: Running sequence modeling architectures (CNN-Transformer, CNN-BiLSTM, TCN, Spatio-Temporal networks) with Test-Time Augmentation (TTA) to predict behavioral and emotional states.
-- **Real-Time Telemetry & Offloading**: WebRTC (`aiortc`) and WebSocket streaming channels for live feedback, coupled with MinIO S3 object storage for artifact persistence.
+- [Project Description](#project-description)
+  - [Overview](#overview)
+  - [Technology Rationale](#technology-rationale)
+  - [Challenges & Solutions](#challenges--solutions)
+  - [Roadmap](#roadmap)
+- [Key Features](#key-features)
+- [Tech Stack](#tech-stack)
+- [Installation & Setup](#installation--setup)
+  - [Prerequisites](#prerequisites)
+  - [Step-by-Step Installation](#step-by-step-installation)
+- [Usage Guide](#usage-guide)
+  - [Real-Time WebRTC / WebSocket Streaming](#real-time-webrtc--websocket-streaming)
+  - [Offline Video Upload](#offline-video-upload)
+  - [Makefile Commands](#makefile-commands)
+  - [System Architecture](#system-architecture)
+- [Testing & Benchmarks](#testing--benchmarks)
+  - [Running Spotting Benchmarks](#running-spotting-benchmarks)
+  - [Generating Visualizations](#generating-visualizations)
+  - [Evaluation Metrics](#evaluation-metrics)
+- [Project Structure](#project-structure)
+- [Contributing](#contributing)
+- [Credits & Acknowledgements](#credits--acknowledgements)
+- [License](#license)
 
 ---
 
-## Features
+## Project Description
 
-- **Real-Time Video Streaming**: Low-latency video stream ingestion over WebRTC (`aiortc`) and binary WebSocket protocols with real-time bounding box and analytics delivery.
-- **Offline Video Processing**: REST API endpoints for uploading pre-recorded video files with frame-by-frame feature extraction, micro-expression spotting, and exportable results.
-- **Phase-Based Apex Spotting**: Advanced Riesz Pyramid phase analysis for precise detection of micro-expression peak frames across short temporal windows.
-- **Face Mesh & ROI Extraction**: MediaPipe FaceMesh integration for head pose alignment, facial landmark visualizers, and targeted ROI cropping (eyebrows, eyes, nose, mouth).
-- **CUDA-Accelerated Optical Flow**: High-performance TV-L1 optical flow calculation optimized using CuPy and GPU kernels.
-- **Multi-Architecture Deep Learning Suite**:
-  - Transformer
-  - Bi-LSTM (with Attention / Multi-Head Attention)
-  - LSTM + MLP
-  - Temporal Convolutional Networks (TCN)
-  - Spatio-Temporal 3D Neural Networks
-- **Test-Time Augmentation (TTA)**: Configurable multi-pass TTA during inference for robust model predictions.
-- **MinIO S3 Integration**: Automated object storage management for session recordings, landmark metadata, and generated optical flow artifacts.
-- **Telemetry & Historical Analytics**: Comprehensive API for retrieving real-time inference history, frame-level metrics, and system log streams.
+### Overview
+
+**Pulse Live** is an end-to-end computer vision and deep learning platform for real-time and offline detection, temporal apex spotting, and classification of facial micro-expressions. Micro-expressions are brief, involuntary facial movements (lasting 1/25s to 1/5s) that expose subtle psychological responses.
+
+The automated multi-stage pipeline consists of:
+1. **Landmark Alignment**: Real-time 468-point tracking via MediaPipe FaceMesh to extract facial Regions of Interest (ROIs).
+2. **Phase-Based Apex Spotting**: Detection of micro-movement onset, apex (peak intensity), and offset frames using Riesz Pyramids.
+3. **Dense Optical Flow**: CUDA-accelerated TV-L1 optical flow extraction powered by CuPy.
+4. **Deep Learning Classification**: Sequence modeling (CNN-Transformer, Bi-LSTM, TCN, 3D CNN) with Test-Time Augmentation (TTA).
+5. **Streaming & Storage**: Low-latency WebRTC (`aiortc`) and WebSocket telemetry combined with MinIO S3 object storage.
+
+---
+
+### Technology Rationale
+
+- **Python 3.12 & `uv`**: Fast execution and reproducible environment management.
+- **FastAPI & `aiortc` / WebSockets**: Asynchronous, low-latency video stream ingestion and real-time telemetry streaming.
+- **CUDA-Accelerated MediaPipe & OpenCV**: Custom GPU wheels to offload landmark alignment and frame rendering from the CPU.
+- **CuPy & TV-L1 Optical Flow**: GPU-accelerated spatial-temporal motion vector computation for high-frame-rate processing.
+- **PyTorch (CUDA 12.8)**: High-performance neural network evaluation supporting modern sequence architectures.
+- **MinIO S3**: Scalable object storage for raw session recordings, landmark metadata, and optical flow artifacts.
+
+---
+
+### Challenges & Solutions
+
+- **Subtle Motion Detection**: Overcame high noise in micro-movements by combining Riesz Pyramids with dense TV-L1 optical flow.
+- **Real-Time Pipeline Sync**: Prevented frame drops under heavy GPU model evaluation through non-blocking async buffer queues.
+- **Custom GPU Build Dependencies**: Maintained custom Linux GPU wheels for MediaPipe 0.10.15 and OpenCV CUDA 4.15.
+
+---
+
+### Roadmap
+
+- [ ] **Multi-Person Tracking**: Concurrent multi-face ROI isolation in dense video frames.
+- [ ] **TensorRT / ONNX Acceleration**: Sub-millisecond model optimization for edge deployment.
+- [ ] **Web Dashboard**: Interactive React/Next.js interface for live telemetry and analytics.
+- [ ] **Multimodal Fusion**: Combined audio prosody and facial optical flow analysis.
+
+---
+
+## Key Features
+
+- **Live Streaming API**: Low-latency WebRTC stream ingestion and WebSocket JSON telemetry delivery.
+- **Offline Processing**: REST API endpoints for batch video feature extraction, apex spotting, and data export.
+- **Phase Apex Spotting**: Riesz Pyramid phase dynamics to isolate peak micro-expression frames.
+- **Targeted ROI Cropping**: Automatic extraction of key facial regions (eyebrows, eyes, nose, mouth).
+- **GPU Optical Flow**: High-throughput TV-L1 motion vectors computed via custom CUDA/CuPy kernels.
+- **Deep Learning Suite**: CNN-Transformer, Bi-LSTM (Attention), TCN, and 3D Spatio-Temporal networks with TTA.
+- **MinIO Object Storage**: Automated persistence for videos, landmark JSONs, and optical flow maps.
+- **Telemetry & Logs API**: Endpoints for retrieving execution logs, session histories, and runtime metrics.
 
 ---
 
@@ -40,85 +99,146 @@ The system incorporates a multi-stage analysis pipeline:
 
 | Category | Technology |
 | :--- | :--- |
-| **Programming Language** | Python 3.12 |
-| **Deep Learning & Math** | PyTorch (CUDA 12.8), Torchvision, SciPy, NumPy, Scikit-Learn |
-| **GPU Acceleration** | CuPy (CUDA 12.x) |
-| **Computer Vision** | OpenCV, MediaPipe (Custom Linux GPU Wheel), PyAV (`av`) |
-| **Web Framework & API** | FastAPI, Uvicorn, WebSockets, `aiortc` (WebRTC) |
+| **Language** | Python 3.12 |
+| **Deep Learning** | PyTorch (CUDA 12.8), Torchvision, SciPy, NumPy, Scikit-Learn |
+| **GPU Acceleration** | CuPy (CUDA 12.x), CUDA Toolkit 12.8 |
+| **Computer Vision** | OpenCV CUDA 4.15.0, MediaPipe 0.10.15 (Custom GPU Wheel), PyAV (`av`) |
+| **Web & Async I/O** | FastAPI, Uvicorn, WebSockets, `aiortc` (WebRTC) |
 | **Object Storage** | MinIO (S3-Compatible Storage) |
-| **Containerization** | Docker, Docker Compose |
-| **Package & Env Manager** | `uv` |
+| **DevOps & Containers** | Docker, Docker Compose, Makefile |
+| **Package Manager** | [`uv`](https://github.com/astral-sh/uv) |
 
 ---
 
-## Installation
+## Installation & Setup
 
 ### Prerequisites
 
-- **Operating System**: Linux (Ubuntu 22.04+ recommended)
-- **Python**: Python 3.12
-- **GPU Driver & CUDA**: NVIDIA GPU Driver supporting CUDA 12.x / CUDA 12.8
-- **Tooling**: [`uv`](https://github.com/astral-sh/uv) package manager, Docker & Docker Compose, `make`
+- **OS**: Linux (Ubuntu 22.04 LTS or newer recommended)
+- **Python**: Version `3.12.*`
+- **NVIDIA GPU**: CUDA 12.x supported GPU with Driver 12.8 installed
+- **Tooling**: [`uv`](https://github.com/astral-sh/uv), Docker & Docker Compose, GNU `make`
 
-### Step-by-Step Setup
+---
 
-1. **Clone the Repository**
+### Step-by-Step Installation
+
+1. **Clone Repository**
    ```bash
    git clone https://github.com/your-org/pulse-live.git
    cd pulse-live
    ```
 
-2. **Configure Environment Variables**
-   Create or update the `.env` configuration file:
+2. **Configure Environment**
    ```bash
-   cp .env.example .env  # or edit .env directly
+   cp .env.example .env
    ```
+   *Note: Customize model path, MinIO credentials, and ports inside `.env`.*
 
 3. **Install Dependencies**
-   Use `uv` to synchronize dependencies and environment:
    ```bash
    make sync-deps
-   # or directly with uv:
+   # Or directly:
    uv sync
    ```
 
-4. **Start Infrastructure Services**
-   Launch MinIO S3 object storage container:
+4. **Launch Infrastructure**
    ```bash
    make infra
    ```
 
+5. **Run Application Server**
+   ```bash
+   make dev
+   ```
+   Server runs at `http://localhost:8000`. Interactive docs are available at `http://localhost:8000/docs`.
+
 ---
 
-## Commands
+## Usage Guide
 
-The project includes a `Makefile` to streamline common operations.
+### Real-Time WebRTC / WebSocket Streaming
+
+1. Send a WebRTC offer to `/api/webrtc/offer` to negotiate low-latency video media tracks.
+2. Connect to `/api/ws/telemetry` over WebSockets to receive live frame analytics:
+   - Face bounding boxes & landmark status
+   - Isolated facial ROIs
+   - Apex frame spotting indicators
+   - Emotion classification confidence scores
+
+See [`docs/API_CONTRACT.md`](file:///home/inadio/skripkir/pulse-live/docs/API_CONTRACT.md) and [`docs/webrtc_websocket_workflow.md`](file:///home/inadio/skripkir/pulse-live/docs/webrtc_websocket_workflow.md) for protocol details.
+
+---
+
+### Offline Video Upload
+
+Process pre-recorded video files via POST request:
+```bash
+curl -X POST "http://localhost:8000/api/video/upload" \
+  -H "accept: application/json" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@/path/to/sample_video.mp4"
+```
+Refer to [`docs/VIDEO_UPLOAD.md`](file:///home/inadio/skripkir/pulse-live/docs/VIDEO_UPLOAD.md) for details.
+
+---
+
+### Makefile Commands
 
 | Command | Description |
 | :--- | :--- |
-| `make run` | Run the FastAPI development server with Uvicorn (`uv run python main.py`) |
-| `make dev` | Development shortcut to start the server with auto-reload |
-| `make infra` | Start Docker containers (MinIO object storage) in detached mode |
-| `make infra-down` | Stop and remove running Docker containers |
-| `make infra-logs` | Tail real-time logs from Docker container infrastructure |
-| `make sync-deps` | Run `./scripts/sync-deps.sh` to synchronize environment dependencies |
-| `make clean` | Clean up temporary files and python caches (`__pycache__`, `.tmp`) |
+| `make run` | Run server in production mode (`uv run python main.py`) |
+| `make dev` | Run development server with auto-reload |
+| `make infra` | Start MinIO Docker container |
+| `make infra-down` | Stop MinIO Docker container |
+| `make infra-logs` | Tail MinIO Docker container logs |
+| `make sync-deps` | Synchronize virtual environment dependencies |
+| `make clean` | Remove temporary cache files (`__pycache__`, `.tmp`) |
 
-### Direct Script & Execution Commands
+---
 
-- **Run Web Application Server**:
-  ```bash
-  uv run python main.py
-  ```
-- **Execute Micro-Expression Spotting Benchmarks**:
-  ```bash
-  uv run python cas_me_2_spotting.py
-  uv run python samm_spotting.py
-  ```
-- **Generate Apex Visualizations**:
-  ```bash
-  uv run python generate_apex_visual.py
-  ```
+### System Architecture
+
+```
+[ Camera / Video Input ]
+          │
+          ▼
+ [ WebRTC Receiver ] ──► [ MediaPipe FaceMesh ] ──► [ ROI Extraction ]
+                                                           │
+                                                           ▼
+ [ MinIO Storage ] ◄── [ TV-L1 Optical Flow ] ◄─── [ Riesz Apex Spotting ]
+        ▲                       │
+        │                       ▼
+ [ Telemetry Log ] ◄── [ PyTorch Deep Model ] ──► [ WebSocket Output ]
+```
+
+---
+
+## Testing & Benchmarks
+
+Validate apex spotting and classification accuracy on standard academic datasets (CAS(ME)^2 and SAMM).
+
+### Running Spotting Benchmarks
+
+```bash
+# CAS(ME)^2 benchmark
+uv run python cas_me_2_spotting.py
+
+# SAMM benchmark
+uv run python samm_spotting.py
+```
+
+### Generating Visualizations
+
+```bash
+uv run python generate_apex_visual.py
+```
+
+### Evaluation Metrics
+
+See documentation for evaluation mathematical logic and thresholding:
+- [`docs/CONFUSION_MATRIX_MANUAL_CALC.md`](file:///home/inadio/skripkir/pulse-live/docs/CONFUSION_MATRIX_MANUAL_CALC.md): Confusion matrix verification formulas.
+- [`docs/CUTOFF_RATIO_CASME_II.md`](file:///home/inadio/skripkir/pulse-live/docs/CUTOFF_RATIO_CASME_II.md): Cutoff threshold specifications for CAS(ME)^2.
 
 ---
 
@@ -126,42 +246,63 @@ The project includes a `Makefile` to streamline common operations.
 
 ```
 pulse-live/
-├── .env                          # Environment configuration & model settings
-├── docker-compose.yml            # Docker infrastructure configuration (MinIO)
-├── Makefile                      # Makefile for running and managing the app
-├── pyproject.toml                # UV dependency manifest and PyPI index specs
-├── main.py                       # FastAPI application entrypoint & lifespan manager
-├── real-time.log                 # Server runtime log file
-├── docs/                         # Detailed project documentation & API contracts
-│   ├── API_CONTRACT.md           # WebRTC & WebSocket signaling schema spec
-│   ├── BUILD_MEDIAPIPE_GPU.md    # Instructions for building MediaPipe with GPU support
-│   ├── LOGS_API.md               # Telemetry and logging API documentation
-│   └── VIDEO_UPLOAD.md           # Video upload processing contract
-├── packages/                     # Custom pre-compiled binary packages (.whl)
-│   └── mediapipe-0.10.15-*.whl   # Custom MediaPipe Linux GPU wheel
-├── scripts/                      # Utility and setup scripts
-│   ├── generate_cas_me_2_cache.py
-│   └── sync-deps.sh
-├── combinations-notebooks/       # Model checkpoints and trained weights
-├── notebooks/                    # Jupyter notebooks for data analysis & experiments
-└── src/                          # Core application source code
-    ├── api/                      # FastAPI routers (WebRTC, WebSocket, Video, History, Logs)
-    ├── apex/                     # Micro-expression apex frame spotters & phase analysis
-    ├── dataset/                  # Dataset loaders, feature augmentations, transforms
-    ├── datasource/               # Window and hybrid sequence data extractors
-    ├── evaluator/                # Metrics and performance evaluation utilities
-    ├── face/                     # MediaPipe face mesh, landmark tracking, ROI aligners
-    ├── models/                   # Deep learning models & inference registry
-    │   ├── inferencer/           # Model inferencer implementations (CNN-Transformer, TCN, etc.)
-    │   └── modules/              # PyTorch neural network layer components
-    ├── optical_flow/             # CUDA-accelerated TV-L1 optical flow module
-    ├── storage/                  # MinIO S3 object storage client & persistence
-    ├── utils/                    # Common helpers and signal processing utilities
-    └── video/                    # Video decoding, frame extraction, FPS handlers
+├── .env                          # Environment variables & model configuration
+├── docker-compose.yml            # Infrastructure definition (MinIO)
+├── Makefile                      # Command shortcuts
+├── pyproject.toml                # UV package manifest
+├── main.py                       # FastAPI application entrypoint
+├── docs/                         # Specifications & API documentation
+│   ├── API_CONTRACT.md           # WebRTC/WebSocket contract
+│   ├── BUILD_MEDIAPIPE_GPU.md    # GPU wheel compilation guide
+│   ├── CONFUSION_MATRIX_MANUAL_CALC.md # Metric calculation logic
+│   ├── CUTOFF_RATIO_CASME_II.md  # Temporal cutoff ratios
+│   ├── LOGS_API.md               # Logging API reference
+│   ├── VIDEO_UPLOAD.md           # Offline upload specification
+│   ├── webrtc_websocket_workflow.md # Streaming pipeline guide
+│   └── workflow.md               # System processing overview
+├── packages/                     # Custom Linux GPU wheels (.whl)
+│   ├── mediapipe-0.10.15-*.whl   # Custom MediaPipe wheel
+│   └── opencv_cuda-4.15.0-*.whl  # Custom OpenCV CUDA wheel
+├── scripts/                      # Utility scripts
+├── notebooks/                    # Analysis & experiment notebooks
+└── src/                          # Application source code
+    ├── api/                      # FastAPI endpoints (WebRTC, WS, Video, Logs)
+    ├── apex/                     # Riesz Pyramid apex spotters
+    ├── dataset/                  # Dataset loaders & augmentations
+    ├── datasource/               # Sequence extractors
+    ├── evaluator/                # Metrics calculation
+    ├── face/                     # Landmark tracking & ROI aligners
+    ├── models/                   # Neural network architectures & inferencer
+    ├── optical_flow/             # CUDA TV-L1 optical flow module
+    ├── storage/                  # MinIO S3 storage integration
+    ├── utils/                    # Signal processing helpers
+    └── video/                    # Frame extraction & video decoders
 ```
+
+---
+
+## Contributing
+
+Direct public contributions and pull requests are currently closed for this project. If you wish to contribute or collaborate, please contact the maintainer first via email at [ajhmdni02@gmail.com](mailto:ajhmdni02@gmail.com).
+
+---
+
+
+## Credits & Acknowledgements
+
+### Datasets
+- **CAS(ME)^2**: Chinese Academy of Sciences Micro-expression and Macro-expression database.
+- **SAMM**: Spontaneous Actions and Micro-Movement database.
+
+### Core Libraries
+- [MediaPipe](https://github.com/google/mediapipe) for face mesh tracking.
+- [PyTorch](https://pytorch.org/) & [CuPy](https://cupy.dev/) for deep learning and GPU computations.
+- [FastAPI](https://fastapi.tiangolo.com/) & [aiortc](https://github.com/aiortc/aiortc) for WebRTC and async APIs.
+- [MinIO](https://min.io/) for S3 object storage.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](file:///home/inadio/skripkir/pulse-live/LICENSE) file for details.
+Distributed under the **MIT License**. See [`LICENSE`](file:///home/inadio/skripkir/pulse-live/LICENSE) for details.
+
