@@ -1,30 +1,22 @@
-"""Shared configuration constants for the API layer.
-
-Centralises inference timing, model paths, and ICE server settings
-so they can be imported by both the WebRTC and WebSocket modules.
-"""
-
 from __future__ import annotations
 
-CKPT_PATH: str = "./notebooks/checkpoints_lopo/lopo_fold00_uar1.0000.pt"
-NORM_PATH: str = "./notebooks/checkpoints_lopo/lopo_fold00_uar1.0000_normalizer.npz"
+import os
 
-WINDOW_SECONDS: float = 1.5
-"""Accumulate frames for this many seconds before triggering inference."""
+CKPT_PATH: str = os.getenv(
+    "MODEL_CHECKPOINT_PATH",
+    "./notebooks/checkpoints_lopo/lopo_fold00_uar1.0000.pt",
+)
+NORM_PATH: str = os.getenv(
+    "MODEL_NORM_PATH",
+    "./notebooks/checkpoints_lopo/lopo_fold00_uar1.0000_normalizer.npz",
+)
 
-MIN_FRAMES: int = 20
-"""Minimum frame count in a window to trigger inference."""
+WINDOW_SECONDS: float = float(os.getenv("WINDOW_SECONDS", "1.5"))
 
-TARGET_FPS: int = 15
-"""Target FPS from the browser — excess frames are dropped."""
+MIN_FRAMES: int = int(os.getenv("MIN_FRAMES", "20"))
 
-# ── WebRTC / ICE ──────────────────────────────────────────────────────
+TARGET_FPS: int = int(os.getenv("TARGET_FPS", "15"))
+
 STUN_SERVERS: list[str] = []
-"""STUN server URIs.  Empty = LAN-only (no STUN).
 
-Set to ``["stun:stun.l.google.com:19302"]`` for internet use.
-"""
-
-# ── Heartbeat ─────────────────────────────────────────────────────────
 HEARTBEAT_TIMEOUT_SECONDS: float = 30.0
-"""Send a heartbeat when no prediction arrives within this interval."""

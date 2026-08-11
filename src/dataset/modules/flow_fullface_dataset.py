@@ -33,6 +33,7 @@ class FlowFullFaceDataset(AnxietyDatasetBase):
         detector=None,
         cache_dir: Optional[Union[str, Path]] = None,
         force_rebuild: bool = False,
+        window_level: bool = False,
     ):
         self.detector = detector
         super().__init__(
@@ -40,6 +41,7 @@ class FlowFullFaceDataset(AnxietyDatasetBase):
             transform=transform,
             cache_dir=cache_dir,
             force_rebuild=force_rebuild,
+            window_level=window_level,
         )
 
     def _load_flow(self, npy_path: str) -> np.ndarray:

@@ -553,7 +553,7 @@ class AnxietyInferencer:
             ImportError: If ApexPhaseSpotter is unavailable.
         """
         try:
-            from src.apex.modules.v2.apex_phase_spotter import ApexPhaseSpotter
+            from src.apex.modules.apex_phase_spotter import ApexPhaseSpotter
         except ImportError as exc:
             raise ImportError(
                 f"ApexPhaseSpotter module not found: {exc}"

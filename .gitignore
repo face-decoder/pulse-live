@@ -8,3 +8,15 @@ wheels/
 .ruff_cache/
 .pytest_cache/
 .coverage
+.tmp/
+.env
+checkpoints*
+cache_*
+*cache*/
+logs/
+real-time.log
+data/
+poc-notebooks/
+article/
+packages/opencv_cuda-*.whl
+

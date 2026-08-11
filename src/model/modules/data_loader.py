@@ -10,7 +10,7 @@ from sklearn.model_selection import GroupKFold
 from torch.utils.data import Dataset
 
 from .feature_extractor import FeatureExtractor
-from src.apex.modules.v2 import ApexPhase
+from src.apex.modules import ApexPhase
 
 logger = logging.getLogger(__name__)
 

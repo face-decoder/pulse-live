@@ -23,10 +23,26 @@ class LazyVideo:
             raise ValueError(f"Cannot open video file: {video_path}")
         
         # Mengambil metadata video untuk optimasi akses frame
-        self.count      = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))  # Total frame dalam video
         self.width      = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))  # Lebar frame video
         self.height     = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) # Tinggi frame video
-        self.fps        = self.cap.get(cv2.CAP_PROP_FPS)               # Frame per detik video, berguna untuk timing dan sinkronisasi
+        self.fps        = self.cap.get(cv2.CAP_PROP_FPS)               # Frame per detik video
+
+        # CAP_PROP_FRAME_COUNT is unreliable for WebM/VP8/VP9 containers —
+        # it returns -1 when the header doesn't embed the total frame count.
+        # Fall back to a fast sequential scan to get the true count.
+        raw_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if raw_count > 0:
+            self.count = raw_count
+        else:
+            n = 0
+            while True:
+                ret, _ = self.cap.read()
+                if not ret:
+                    break
+                n += 1
+            self.count = n
+            # Rewind so subsequent reads start from frame 0
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
 
     def __len__(self) -> int:
