@@ -166,7 +166,7 @@ The automated multi-stage pipeline consists of:
    - Apex frame spotting indicators
    - Emotion classification confidence scores
 
-See [`docs/API_CONTRACT.md`](file:///home/inadio/skripkir/pulse-live/docs/API_CONTRACT.md) and [`docs/webrtc_websocket_workflow.md`](file:///home/inadio/skripkir/pulse-live/docs/webrtc_websocket_workflow.md) for protocol details.
+See [`docs/api-streaming-contract.md`](docs/api-streaming-contract.md) and [`docs/architecture-webrtc-websocket.md`](docs/architecture-webrtc-websocket.md) for protocol details.
 
 ---
 
@@ -179,7 +179,7 @@ curl -X POST "http://localhost:8000/api/video/upload" \
   -H "Content-Type: multipart/form-data" \
   -F "file=@/path/to/sample_video.mp4"
 ```
-Refer to [`docs/VIDEO_UPLOAD.md`](file:///home/inadio/skripkir/pulse-live/docs/VIDEO_UPLOAD.md) for details.
+Refer to [`docs/api-video-upload.md`](docs/api-video-upload.md) for details.
 
 ---
 
@@ -237,8 +237,8 @@ uv run python generate_apex_visual.py
 ### Evaluation Metrics
 
 See documentation for evaluation mathematical logic and thresholding:
-- [`docs/CONFUSION_MATRIX_MANUAL_CALC.md`](file:///home/inadio/skripkir/pulse-live/docs/CONFUSION_MATRIX_MANUAL_CALC.md): Confusion matrix verification formulas.
-- [`docs/CUTOFF_RATIO_CASME_II.md`](file:///home/inadio/skripkir/pulse-live/docs/CUTOFF_RATIO_CASME_II.md): Cutoff threshold specifications for CAS(ME)^2.
+- [`docs/eval-confusion-matrix-calc.md`](docs/eval-confusion-matrix-calc.md): Confusion matrix verification formulas.
+- [`docs/analysis-cutoff-ratio-casme-ii.md`](docs/analysis-cutoff-ratio-casme-ii.md): Cutoff threshold specifications for CAS(ME)^2.
 
 ---
 
@@ -252,14 +252,14 @@ pulse-live/
 ├── pyproject.toml                # UV package manifest
 ├── main.py                       # FastAPI application entrypoint
 ├── docs/                         # Specifications & API documentation
-│   ├── API_CONTRACT.md           # WebRTC/WebSocket contract
-│   ├── BUILD_MEDIAPIPE_GPU.md    # GPU wheel compilation guide
-│   ├── CONFUSION_MATRIX_MANUAL_CALC.md # Metric calculation logic
-│   ├── CUTOFF_RATIO_CASME_II.md  # Temporal cutoff ratios
-│   ├── LOGS_API.md               # Logging API reference
-│   ├── VIDEO_UPLOAD.md           # Offline upload specification
-│   ├── webrtc_websocket_workflow.md # Streaming pipeline guide
-│   └── workflow.md               # System processing overview
+│   ├── api-streaming-contract.md       # WebRTC/WebSocket contract
+│   ├── api-video-upload.md             # Offline upload specification
+│   ├── api-logs.md                     # Logs API reference
+│   ├── architecture-webrtc-websocket.md # Streaming pipeline guide
+│   ├── model-training-workflow.md      # Training pipeline & design rationale
+│   ├── setup-mediapipe-gpu-build.md    # GPU wheel compilation guide
+│   ├── eval-confusion-matrix-calc.md   # Metric calculation logic
+│   └── analysis-cutoff-ratio-casme-ii.md # Temporal cutoff ratios
 ├── packages/                     # Custom Linux GPU wheels (.whl)
 │   ├── mediapipe-0.10.15-*.whl   # Custom MediaPipe wheel
 │   └── opencv_cuda-4.15.0-*.whl  # Custom OpenCV CUDA wheel

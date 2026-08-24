@@ -1,11 +1,11 @@
 # Dokumentasi Teknis & Justifikasi Desain Eksperimen
-**Model CNN-Transformer pada File [0407-onset-apex-behavior-cnn-transformer.ipynb](file:///home/inadio/skripkir/pulse-live/combinations-notebooks/0407-onset-apex-behavior-cnn-transformer.ipynb)**
+**Model CNN-Transformer pada File [0407-onset-apex-behavior-cnn-transformer.ipynb](../combinations-notebooks/0407-onset-apex-behavior-cnn-transformer.ipynb)**
 
 Dokumen ini berisi catatan teknis implementasi, dokumentasi parameter, serta analisis dan justifikasi ilmiah atas keputusan desain model yang digunakan dalam eksperimen deteksi kecemasan berbasis gerakan wajah.
 
 ---
 
-## I. DIAGRAM ALUR PIPELINE (WORKFLOW)
+## 1. Diagram Alur Pipeline
 
 > [!NOTE]
 > Bagan alur di bawah ini merangkum proses komputasi yang berjalan pada sistem secara vertikal linier, mulai dari pemrosesan data mentah hingga pengujian independen:
@@ -30,7 +30,7 @@ graph TD
 
 ---
 
-## II. CATATAN NARASI PENJELASAN KODE (TECHNICAL NARRATIVE NOTES)
+## 2. Catatan Narasi Teknis
 
 ### 1. Deskripsi Umum dan Tujuan Pemodelan
 > "Pada eksperimen ini, saya fokus untuk melatih dan mengevaluasi model deep learning untuk klasifikasi biner tingkat kecemasan (anxiety rendah vs tinggi) berbasis analisis sekuens ekspresi wajah temporal. Ruang lingkup data yang dianalisis adalah fase gerakan dari *onset* menuju *apex*."
@@ -39,13 +39,13 @@ graph TD
 > "Untuk pembagian data latih dan validasi, saya menggunakan pembagian berbasis subjek (*subject-disjoint split*) melalui modul kustom `custom_sgkf_train_val_split`. Modul ini mengombinasikan `StratifiedGroupKFold` dengan pencarian kombinasi fold optimal secara heuristik. Tujuannya adalah memastikan tidak ada subjek (orang) yang sama di set latih dan validasi sekaligus menjaga kemiripan distribusi kelas di kedua set tersebut tetap seimbang."
 
 ### 3. Ekstraksi Fitur Perilaku Temporal (Behavioral Features)
-> "Sebagai fitur masukan model, saya mengekstrak 47 saluran fitur perilaku per frame wajah melalui kelas [BehavioralFeatures](file:///home/inadio/skripkir/pulse-live/src/dataset/modules/behavioral_features.py). Fitur ini diturunkan dari 5 Region of Interest (ROI) wajah (mata, alis, dan bibir) yang mencakup magnitudo, energi kinetik, konsistensi arah, akselerasi, *jerk*, sinkronisasi antar-ROI, serta tingkat simetri gerakan."
+> "Sebagai fitur masukan model, saya mengekstrak 47 saluran fitur perilaku per frame wajah melalui kelas [BehavioralFeatures](../src/dataset/modules/behavioral_features.py). Fitur ini diturunkan dari 5 Region of Interest (ROI) wajah (mata, alis, dan bibir) yang mencakup magnitudo, energi kinetik, konsistensi arah, akselerasi, *jerk*, sinkronisasi antar-ROI, serta tingkat simetri gerakan."
 
 ### 4. Penyeimbangan Distribusi Kelas (Imbalance Sampling)
 > "Karena dataset memiliki ketidakseimbangan kelas yang cukup menonjol, saya menerapkan `WeightedRandomSampler` di DataLoader latihan. Metode ini memberikan bobot probabilitas penarikan sampel yang lebih tinggi untuk kelas minoritas (kecemasan tinggi) sehingga model menerima batch data yang seimbang di setiap epoch latihan."
 
 ### 5. Integrasi Arsitektur Transformer Encoder
-> "Model yang diimplementasikan adalah [CNN_Transformer](file:///home/inadio/skripkir/pulse-live/src/models/modules/cnn_transformer/cnn_transformer.py) (Transformer Encoder Only). Saluran input berdimensi 47 diproyeksikan secara linier ke dimensi tersembunyi 64, dipadukan dengan positional encoding, lalu dilewatkan pada 2 layer Transformer Encoder. Agregasi fitur temporal dilakukan melalui *Masked Global Average Pooling* untuk mengabaikan kontribusi frame padding."
+> "Model yang diimplementasikan adalah [CNN_Transformer](../src/models/modules/cnn_transformer/cnn_transformer.py) (Transformer Encoder Only). Saluran input berdimensi 47 diproyeksikan secara linier ke dimensi tersembunyi 64, dipadukan dengan positional encoding, lalu dilewatkan pada 2 layer Transformer Encoder. Agregasi fitur temporal dilakukan melalui *Masked Global Average Pooling* untuk mengabaikan kontribusi frame padding."
 
 ### 6. Regulasi Pelatihan & Kriteria Penghentian (Early Stopping)
 > "Pelatihan dilakukan menggunakan optimizer AdamW dengan learning rate scheduler bertipe kombinasi Linear Warmup (10 epoch) dan Cosine Annealing. Loss function yang digunakan adalah Cross Entropy dengan *Label Smoothing* 0.15. Penghentian pelatihan dikontrol oleh *Early Stopping* yang memantau pergerakan Exponential Moving Average (EMA) dari metrik F1 validasi untuk menghindari overfitting pada data validasi."
@@ -58,7 +58,7 @@ graph TD
 
 ---
 
-## III. DOKUMENTASI KONFIGURASI PARAMETER GLOBAL
+## 3. Konfigurasi Parameter Global
 
 | Nama Konstanta / Variabel | Nilai Default | Dampak Teknis & Parameterisasi |
 | :--- | :--- | :--- |
@@ -80,14 +80,14 @@ graph TD
 
 ---
 
-## IV. DISKUSI ILMIAH & JUSTIFIKASI DESAIN (SCIENTIFIC JUSTIFICATIONS)
+## 4. Diskusi Ilmiah & Justifikasi Desain
 
 ### 1. Justifikasi Skema Pembagian Data Latih-Validasi
 *   **Topik Diskusi:** Bahaya *Subject Leakage* dan keterbatasan StratifiedGroupKFold standar.
 *   **Analisis Ilmiah:** 
     *   Jika video dari subjek yang sama tersebar di set latih dan validasi, model cenderung mempelajari identitas anatomis wajah orang tersebut ketimbang pola pergerakan ekspresi kecemasannya. Ini memicu bias evaluasi yang semu (*overoptimistic evaluation*).
     *   Meskipun StratifiedGroupKFold bawaan memisahkan subjek, ia membagi data secara sekuensial-deterministik satu kali, yang sering kali menyisakan deviasi kelas yang timpang pada dataset ukuran kecil. 
-    *   Dengan melakukan pencarian kombinasi kombinasi fold terbaik (`custom_sgkf_train_val_split`), sistem secara matematis menyeimbangkan kelas cemas rendah/tinggi sekaligus menjaga batasan subjek tetap disjoint menggunakan formula penalti:
+    *   Dengan melakukan pencarian kombinasi fold terbaik (`custom_sgkf_train_val_split`), sistem secara matematis menyeimbangkan kelas cemas rendah/tinggi sekaligus menjaga batasan subjek tetap disjoint menggunakan formula penalti:
         ```text
         Score = ratio_err + (0.5 * class_drift_l1) + (0.2 * group_ratio_err)
         ```

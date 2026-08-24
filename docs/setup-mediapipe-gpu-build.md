@@ -2,9 +2,9 @@
 
 Secara bawaan (*default*), pustaka `mediapipe` yang di-*install* melalui `pip` di Linux dikompilasi tanpa dukungan GPU (`GPU processing is disabled in build flags`). 
 
-Jika Anda ingin memaksimalkan *Face Landmark* agar menggunakan CUDA (GPU), Anda harus melakukan kompilasi mandiri dari C++ *source code* menggunakan **Bazel**. 
+Jika Anda ingin memaksimalkan *Face Landmark* agar menggunakan CUDA (GPU), Anda harus melakukan kompilasi mandiri dari C++ *source code* menggunakan **Bazel**.
 
-Panduan ini akan memandu Anda melakukan *build* untuk menghasilkan *installer* Python (`.whl`) khusus dengan CUDA teraktivasi.
+Panduan ini akan memandu Anda melakukan *build* untuk menghasilkan *installer* Python (`.whl`) khusus dengan CUDA aktif.
 
 ---
 
@@ -78,7 +78,7 @@ pip install /path/ke/mediapipe/dist/mediapipe-*.whl
 ```
 
 ### Cara Menyimpan/Memindah Hasil Build:
-File `.whl` yang ada di dalam `dist/` ini bersifat portabel untuk versi Linux dan Python yang sama. Anda cukup **menyalin (copy)** file tersebut ke *flashdisk* atau komputer lain, dan bisa langsung menginstalnya dengan perintah `pip install` tanpa perlu mengulang proses *build* berjam-jam.
+File `.whl` yang ada di dalam folder `dist/` bersifat portabel untuk versi Linux dan Python yang sama. Anda cukup **menyalin (copy)** file tersebut ke *flashdisk* atau komputer lain, lalu langsung menginstalnya dengan perintah `pip install` tanpa perlu mengulang proses *build* berjam-jam.
 
 ---
 

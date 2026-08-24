@@ -4,7 +4,7 @@ Dokumen ini menjelaskan alur kerja (*workflow*) streaming video berbasis **WebRT
 
 ---
 
-## I. DIAGRAM ALUR SISTEM (MERMAID DIAGRAM)
+## 1. Diagram Alur Sistem
 
 Bagan alur di bawah ini merangkum proses komputasi yang berjalan secara vertikal linier, mulai dari signaling hingga inferensi model:
 
@@ -66,22 +66,22 @@ sequenceDiagram
 
 ---
 
-## II. PENJELASAN KONSEP ARSITEKTUR
+## 2. Konsep Arsitektur
 
 Sistem ini didesain untuk mendeteksi kecemasan (*anxiety*) secara *real-time* dari wajah pengguna dengan latensi seminimal mungkin. Untuk mencapai itu, repositori ini mengombinasikan dua metode komunikasi:
 
-### 1. WebRTC & WebSocket Signaling (`/ws/rtc/{session_id}`)
-* **Konsep**: WebRTC (*Web Real-Time Communication*) adalah protokol terbaik untuk transmisi video/audio berlatensi rendah secara langsung (*peer-to-peer*). Namun, sebelum dua perangkat dapat bertukar data media, mereka memerlukan saluran komunikasi luar untuk saling mengenali. Proses pertukaran informasi metadata koneksi ini disebut **Signaling**.
+### 2.1 WebRTC & WebSocket Signaling (`/ws/rtc/{session_id}`)
+* **Konsep**: WebRTC (*Web Real-Time Communication*) adalah protokol terbaik untuk transmisi video/audio berlatensi rendah secara langsung (*peer-to-peer*). Namun, sebelum dua perangkat dapat bertukar data media, keduanya memerlukan saluran komunikasi terpisah untuk saling mengenali. Proses pertukaran informasi metadata koneksi ini disebut **Signaling**.
 * **Fungsi WebSocket**: Di sini, WebSocket digunakan sebagai mediator *signaling* untuk menukar:
   1. **SDP (Session Description Protocol) Offer & Answer**: Informasi format video, codec, dan konfigurasi media.
   2. **ICE (Interactive Connectivity Establishment) Candidates**: Informasi rute jaringan terbaik (IP/Port) agar data media dapat mengalir.
 * **Fungsi WebRTC**: Setelah koneksi WebRTC terbentuk, data video dikirim langsung melalui protokol RTP/SRTP (UDP), yang jauh lebih cepat daripada HTTP atau WebSocket TCP biasa karena tidak memblokir antrean jika terjadi kehilangan paket (*non-blocking*).
 
-### 2. Streaming Frame Mentah via WebSocket (`/ws/stream/{session_id}`)
+### 2.2 Streaming Frame Mentah via WebSocket (`/ws/stream/{session_id}`)
 * **Konsep**: Sebagai jalur cadangan (*fallback*), sistem menyediakan alternatif pengiriman video. Klien tidak perlu menegosiasikan WebRTC, melainkan langsung mengirimkan frame gambar mentah (binary JPG/PNG) secara terus-menerus melalui koneksi WebSocket.
 * **Kelebihan/Kekurangan**: Lebih mudah diimplementasikan di sisi klien, tetapi memiliki latensi dan overhead TCP yang lebih tinggi dibandingkan WebRTC.
 
-### 3. Pemrosesan Non-blocking (Queue-based & Thread Executor)
+### 2.3 Pemrosesan Non-blocking (Queue-based & Thread Executor)
 Pemrosesan computer vision (seperti pendeteksian wajah MediaPipe dan kalkulasi Optical Flow TV-L1) merupakan operasi yang memakan memori dan CPU (*CPU-bound*). Jika dijalankan langsung di event loop utama ASGI (FastAPI), server akan membeku (*freeze*).
 * **Solusinya**: 
   1. Server menggunakan antrean asinkron (`asyncio.Queue`) dengan batas kapasitas maksimal agar frame yang menumpuk dibuang jika pemrosesan terlalu lambat (*backpressure management*).
@@ -89,15 +89,15 @@ Pemrosesan computer vision (seperti pendeteksian wajah MediaPipe dan kalkulasi O
 
 ---
 
-## III. IMPLEMENTASI BARIS KODE
+## 3. Implementasi Kode
 
-Berikut adalah rincian kode yang mengimplementasikan konsep-konsep di atas, merujuk langsung ke file [src/api/webrtc.py](file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py) dan [src/api/websocket.py](file:///home/inadio/skripkir/pulse-live/src/api/websocket.py).
+Berikut adalah rincian kode yang mengimplementasikan konsep-konsep di atas, merujuk langsung ke file [src/api/webrtc.py](../src/api/webrtc.py) dan [src/api/websocket.py](../src/api/websocket.py).
 
-### 1. Alur Signaling WebRTC (SDP & ICE)
-Semua negosiasi koneksi WebRTC ditangani di dalam endpoint `/ws/rtc/{session_id}` pada file [src/api/webrtc.py](file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L586):
+### 3.1 Alur Signaling WebRTC (SDP & ICE)
+Semua negosiasi koneksi WebRTC ditangani di dalam endpoint `/ws/rtc/{session_id}` pada [src/api/webrtc.py](../src/api/webrtc.py):
 
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L586-L591
+# src/api/webrtc.py
 @router.websocket("/ws/rtc/{session_id}")
 async def webrtc_signaling(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
@@ -109,7 +109,7 @@ async def webrtc_signaling(websocket: WebSocket, session_id: str) -> None:
 
 #### A. Menangani SDP Offer & Answer
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L640-L657
+# src/api/webrtc.py (L640-L657)
             if msg_type == "offer":
                 offer = RTCSessionDescription(
                     sdp=str(msg["sdp"]),
@@ -135,7 +135,7 @@ async def webrtc_signaling(websocket: WebSocket, session_id: str) -> None:
 
 #### B. Pertukaran ICE Candidates
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L601-L615
+# src/api/webrtc.py (L601-L615)
     @state.pc.on("icecandidate")
     async def _on_icecandidate(candidate: object) -> None:
         if candidate is not None:
@@ -152,15 +152,15 @@ async def webrtc_signaling(websocket: WebSocket, session_id: str) -> None:
             logger.info("Sending ICE candidate to session %s: %s", session_id, raw)
             await websocket.send_text(raw)
 ```
-* **Penjelasan**: Listener `@state.pc.on("icecandidate")` mendeteksi ketika tumpukan WebRTC lokal menemukan jalur jaringan baru (kandidat ICE), yang kemudian secara otomatis diteruskan ke klien melalui WebSocket. Sebaliknya, ketika klien mengirimkan kandidat ICE-nya ke server (tipe pesan `"candidate"`), server memprosesnya dan menambahkannya ke peer connection (`addIceCandidate`) (baris [L659-L686](file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L659-L686)).
+* **Penjelasan**: Listener `@state.pc.on("icecandidate")` mendeteksi ketika tumpukan WebRTC lokal menemukan jalur jaringan baru (kandidat ICE), yang kemudian secara otomatis diteruskan ke klien melalui WebSocket. Sebaliknya, ketika klien mengirimkan kandidat ICE-nya ke server (tipe pesan `"candidate"`), server memprosesnya dan menambahkannya ke peer connection (`addIceCandidate`) (baris [L659-L686](../src/api/webrtc.py#L659-L686)).
 
 ---
 
-### 2. Penerimaan Track Video & Pemrosesan Frame
+### 3.2 Penerimaan Track Video & Pemrosesan Frame
 Setelah SDP dinegosiasikan, koneksi WebRTC aktif dan event `"track"` akan dipicu untuk menerima aliran video:
 
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L617-L629
+# src/api/webrtc.py (L617-L629)
     @state.pc.on("track")
     def _on_track(track: MediaStreamTrack) -> None:
         if track.kind == "video":
@@ -179,7 +179,7 @@ Setelah SDP dinegosiasikan, koneksi WebRTC aktif dan event `"track"` akan dipicu
 
 #### A. Kelas `AnxietyVideoTrack` (Penarikan Frame Video)
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L506-L523
+# src/api/webrtc.py (L506-L523)
     async def recv(self) -> object:
         frame = await self._track.recv()
         now = time.time()
@@ -206,12 +206,12 @@ Setelah SDP dinegosiasikan, koneksi WebRTC aktif dan event `"track"` akan dipicu
 
 ---
 
-### 3. Alur Kerja Deteksi & Pipeline Prediksi (`AnxietyStreamProcessor`)
+### 3.3 Alur Kerja Deteksi & Pipeline Prediksi (`AnxietyStreamProcessor`)
 Kelas ini mengelola antrean pemrosesan frame dan menjalankan pemrosesan computer vision:
 
 #### A. Manajemen Antrean Frame (*Backpressure control*)
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L107-L116
+# src/api/webrtc.py (L107-L116)
     def push_frame(
         self, img: np.ndarray, received_at: float, webrtc_latency: float = 0.0
     ) -> None:
@@ -229,7 +229,7 @@ Kelas ini mengelola antrean pemrosesan frame dan menjalankan pemrosesan computer
 Di dalam background loop `_process_loop()` yang mengambil frame dari antrean secara bergantian, fungsi `_process_frame` memanggil proses deteksi wajah:
 
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L139-L170
+# src/api/webrtc.py (L139-L170)
         def detect_and_crop(image):
             with self._landmark_thread_lock:
                 landmarks = self._landmarker.detect(image)
@@ -245,7 +245,7 @@ Di dalam background loop `_process_loop()` yang mengambil frame dari antrean sec
 #### C. Kalkulasi Optical Flow TV-L1 & Sliding Window Buffer
 Jika ada frame sebelumnya, server menghitung pergeseran piksel halus (*optical flow*) pada area mata, alis, dan bibir:
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L194-L230
+# src/api/webrtc.py (L194-L230)
             def compute_batch_flow(prev_crops, crops):
                 with self._landmark_thread_lock:
                     pairs = list(zip(prev_crops, crops))
@@ -257,12 +257,12 @@ Jika ada frame sebelumnya, server menghitung pergeseran piksel halus (*optical f
                 None, compute_batch_flow, prev_crops, crops
             )
 ```
-* **Penjelasan**: Algoritma TV-L1 dipanggil untuk menghasilkan array flow 2D. Nilai *magnitude* gerakan rata-rata disimpan dalam buffer geser (`self._magnitudes_buf` dan `self._flows_buf`) (baris [L236-L240](file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L236-L240)).
+* **Penjelasan**: Algoritma TV-L1 dipanggil untuk menghasilkan array flow 2D. Nilai *magnitude* gerakan rata-rata disimpan dalam buffer geser (`self._magnitudes_buf` dan `self._flows_buf`) (baris [L236-L240](../src/api/webrtc.py#L236-L240)).
 
 #### D. Pengiriman ke Model Deep Learning untuk Prediksi
 Setelah buffer optical flow terisi penuh hingga mencapai `MIN_FRAMES` (misal 120 frame atau 5 detik video):
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L246-L273
+# src/api/webrtc.py (L246-L273)
         if (
             len(self._magnitudes_buf) >= MIN_FRAMES
             and not self._inference_in_progress
@@ -274,15 +274,15 @@ Setelah buffer optical flow terisi penuh hingga mencapai `MIN_FRAMES` (misal 120
             )
 ```
 * **Penjelasan**: Server mengunci state `_inference_in_progress = True` agar tidak memicu inferensi ganda secara bersamaan, lalu menjalankan task asinkron `_run_inference_background(...)`.
-* Di dalam task ini, data flow tensor berdimensi `(T, N_roi, 2, tile_h, tile_w)` dimasukkan ke model prediksi `inf.predict_flow(flow_array)` (baris [L425](file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L425)). Hasilnya berupa tingkat kecemasan (`anxiety_tinggi` / `anxiety_rendah`) beserta konfidensinya, yang langsung dikirimkan kembali ke klien melalui WebSocket dan disimpan ke dalam log database.
+* Di dalam task ini, data flow tensor berdimensi `(T, N_roi, 2, tile_h, tile_w)` dimasukkan ke model prediksi `inf.predict_flow(flow_array)` (baris [L425](../src/api/webrtc.py#L425)). Hasilnya berupa tingkat kecemasan (`anxiety_tinggi` / `anxiety_rendah`) beserta konfidensinya, yang langsung dikirimkan kembali ke klien melalui WebSocket dan disimpan ke dalam log database.
 
 ---
 
-### 4. Alur Kerja Streaming Binary Gambar via WebSocket (`/ws/stream/{session_id}`)
+### 3.4 Alur Kerja Streaming Binary Gambar via WebSocket (`/ws/stream/{session_id}`)
 Selain WebRTC, sistem menyediakan alternatif pengiriman frame gambar mentah lewat WebSocket biner:
 
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/webrtc.py#L711-L735
+# src/api/webrtc.py (L711-L735)
 @router.websocket("/ws/stream/{session_id}")
 async def websocket_video_stream(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
@@ -304,11 +304,11 @@ async def websocket_video_stream(websocket: WebSocket, session_id: str) -> None:
 
 ---
 
-### 5. Server WebSocket Standar (`src/api/websocket.py`)
-File [src/api/websocket.py](file:///home/inadio/skripkir/pulse-live/src/api/websocket.py) mendefinisikan router WebSocket sederhana untuk pengujian pesan teks dasar:
+### 3.5 Server WebSocket Standar (`src/api/websocket.py`)
+File [src/api/websocket.py](../src/api/websocket.py) mendefinisikan router WebSocket sederhana untuk pengujian pesan teks dasar:
 
 ```python
-# file:///home/inadio/skripkir/pulse-live/src/api/websocket.py#L8-L31
+# src/api/websocket.py (L8-L31)
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -326,4 +326,4 @@ class ConnectionManager:
         for connection in self.active_connections:
             await connection.send_text(message)
 ```
-* **Penjelasan**: Kelas `ConnectionManager` bertugas melacak semua koneksi WebSocket yang aktif di daftar `active_connections`. Endpoint `/ws` (baris [L33-L43](file:///home/inadio/skripkir/pulse-live/src/api/websocket.py#L33-L43)) menggunakan manager ini untuk menerima koneksi, mengirimkan balasan pribadi (*echo*), dan menyiarkan (*broadcast*) aktivitas obrolan dasar ke semua klien yang terhubung.
+* **Penjelasan**: Kelas `ConnectionManager` bertugas melacak semua koneksi WebSocket yang aktif di daftar `active_connections`. Endpoint `/ws` (baris [L33-L43](../src/api/websocket.py#L33-L43)) menggunakan manager ini untuk menerima koneksi, mengirimkan balasan pribadi (*echo*), dan menyiarkan (*broadcast*) aktivitas obrolan dasar ke semua klien yang terhubung.

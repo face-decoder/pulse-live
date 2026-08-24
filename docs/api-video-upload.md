@@ -4,7 +4,7 @@ Protokol integrasi WebSocket untuk Frontend (FE) dalam mengirimkan aliran video.
 
 ## 1. Koneksi
 `ws://<host>/ws/video/{session_id}`
-- `session_id`: String unik identifier sesi (e.g. UUID).
+- `session_id`: *string* unik sebagai identifier sesi (misalnya UUID).
 
 ## 2. Client → Server (Sisi FE)
 Kirim data dengan urutan berikut:
@@ -19,7 +19,7 @@ Kirim data dengan urutan berikut:
    ```
 2. **Video Chunks (Biner / ArrayBuffer)**
    Kirim *chunk* video secara kontinu. 
-   > **[INFO]** Gunakan format `webm` (MediaRecorder) atau *Fragmented MP4* (fMP4) agar server bisa menganalisis gambar seketika (*real-time*). Format `mp4` reguler akan *stuck* menunggu file selesai.
+   > **[INFO]** Gunakan format `webm` (MediaRecorder) atau *Fragmented MP4* (fMP4) agar server dapat menganalisis gambar secara *real-time*. Format `mp4` reguler akan *stuck* menunggu file selesai di-*encode*.
 3. **Selesai (Teks / JSON)**
    ```json
    {
@@ -57,7 +57,7 @@ Selama streaming, FE akan menerima event berikut secara *real-time*:
 }
 ```
 
-**D. Heartbeat** (Abaikan, untuk menjaga koneksi tetap hidup)
+**D. Heartbeat** (Abaikan; hanya digunakan untuk menjaga koneksi tetap hidup)
 ```json
 {
   "type": "heartbeat"
