@@ -91,14 +91,14 @@ import mediapipe as mp
 from mediapipe.tasks import python
 
 base_options = python.BaseOptions(
-    model_asset_path='models/face_landmarker.task',
-    delegate=python.BaseOptions.Delegate.GPU  # Aktifkan GPU Delegate
+    model_asset_path="models/face_landmarker.task",
+    delegate=python.BaseOptions.Delegate.GPU,  # Aktifkan GPU Delegate
 )
 
 options = mp.tasks.vision.FaceLandmarkerOptions(
     base_options=base_options,
     num_faces=1,
-    running_mode=mp.tasks.vision.RunningMode.IMAGE
+    running_mode=mp.tasks.vision.RunningMode.IMAGE,
 )
 
 landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(options)

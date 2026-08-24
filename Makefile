@@ -1,4 +1,6 @@
-.PHONY: help dev infra infra-down infra-logs clean sync-deps run
+.PHONY: help dev infra infra-down infra-logs clean sync-deps run lint format test
+
+PY := .venv/bin/python
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -6,6 +8,20 @@ help:
 
 run:
 	@uv run python main.py
+
+# Tooling targets use the provisioned .venv directly: `uv run` re-syncs the
+# environment first, which fails wherever the gitignored opencv-cuda wheel
+# (packages/opencv_cuda-*.whl) is not present on disk.
+
+lint:
+	@$(PY) -m ruff check .
+	@$(PY) -m ruff format --check .
+
+format:
+	@$(PY) -m ruff format .
+
+test:
+	@$(PY) -m pytest tests/ -q
 
 infra:
 	@docker compose up -d

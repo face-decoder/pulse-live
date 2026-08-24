@@ -1,14 +1,14 @@
 import pandas as pd
+from IPython.display import HTML, display
 from sklearn.metrics import classification_report
-from IPython.display import display, HTML
+
 
 class TrainSummaryDisplay:
     def show(self, summary_df=None):
         if summary_df is None:
             display(HTML("<p style='color: red;'>No summary data to display.</p>"))
             return
-        
-        
+
         train_summary_df = pd.DataFrame(
             {
                 "metric": [

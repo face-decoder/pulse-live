@@ -98,9 +98,11 @@ except ValueError as e:
     logger.exception("Processing failed")
     raise
 
+
 # Instead of mutable defaults
 def add_item(item, items=[]):  # Bad
     items.append(item)
+
 
 # Use None pattern
 def add_item(item, items: list | None = None) -> list:
@@ -108,6 +110,7 @@ def add_item(item, items: list | None = None) -> list:
         items = []
     items.append(item)
     return items
+
 
 # Instead of verbose loops
 result = []

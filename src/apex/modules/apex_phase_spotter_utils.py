@@ -6,10 +6,11 @@ import cv2
 import numpy as np
 from scipy.signal import savgol_filter
 
-from .apex_phase import ApexPhase
-from .apex_smoother import ApexSmoother
 from src.dataset.constants.index import ROI_ORDER_DEFAULT
 from src.face.modules import FaceRoiPoints
+
+from .apex_phase import ApexPhase
+from .apex_smoother import ApexSmoother
 
 
 def build_roi_defs() -> list[frozenset]:
@@ -78,7 +79,9 @@ def crop_roi_canvas(
         aligned_landmarks = landmarker.detect(aligned)
     except Exception:
         aligned = frame
-        aligned_landmarks = landmarks if aligned_landmarks is None else aligned_landmarks
+        aligned_landmarks = (
+            landmarks if aligned_landmarks is None else aligned_landmarks
+        )
 
     tile_w, tile_h = tile_size
     crops: list[np.ndarray] = []
@@ -157,17 +160,19 @@ def flow_to_magnitude_signal(
     )
 
 
-def smooth_signal(signal: Sequence[float]) -> np.ndarray:
+def smooth_signal(signal: Sequence[float] | np.ndarray) -> np.ndarray:
     signal_arr = np.asarray(signal, dtype=np.float32)
     if len(signal_arr) < 3:
         return signal_arr
     window_length = ApexSmoother.calculate_window_length(len(signal_arr))
     polyorder = ApexSmoother.calculate_polyorder(window_length)
-    return np.asarray(savgol_filter(signal_arr, window_length, polyorder), dtype=np.float32)
+    return np.asarray(
+        savgol_filter(signal_arr, window_length, polyorder), dtype=np.float32
+    )
 
 
 def detect_windows_from_signal(
-    signal: Sequence[float],
+    signal: Sequence[float] | np.ndarray,
     *,
     percentile: float,
     prominence: float,
@@ -190,15 +195,20 @@ def detect_windows_from_signal(
         prominence_threshold=prominence,
         cutoff_ratio=ratio,
     )
-    # v6-style height threshold: mean + std (more permissive than percentile)
     height_threshold = float(np.mean(smoothed) + np.std(smoothed))
-    # v6-style top-K selection: up to 10 peaks
-    peaks = apex_phase.find_top_k_apex(signal=smoothed.tolist(), k=10, height=height_threshold)
+    peaks = apex_phase.find_top_k_apex(
+        signal=smoothed.tolist(), k=10, height=height_threshold
+    )
 
     if len(peaks) == 0:
         return [], {"valid": False, "reason": "no_peaks", "signal_length": T}
 
-    phases = apex_phase.find_phase(signal=smoothed.tolist(), apex_indices=peaks, cutoff_ratio=ratio, phase_mode=phase_mode)
+    phases = apex_phase.find_phase(
+        signal=smoothed.tolist(),
+        apex_indices=peaks,
+        cutoff_ratio=ratio,
+        phase_mode=phase_mode,
+    )
     windows: List[Tuple[int, int, int]] = []
     for p in peaks:
         phase = phases.get(p, {})

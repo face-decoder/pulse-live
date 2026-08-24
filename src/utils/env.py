@@ -4,9 +4,7 @@ import os
 
 
 class Env:
-    """Static helpers for reading typed values from environment variables."""
-
-    _TRUE_VALUES = {"1", "true", "yes", "on"}
+    __TRUE_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
 
     @staticmethod
     def get_str(name: str, default: str = "") -> str:
@@ -40,5 +38,4 @@ class Env:
         raw = Env.get_str(name, "")
         if not raw:
             return default
-        return raw.lower() in Env._TRUE_VALUES
-
+        return raw.lower() in Env.__TRUE_VALUES

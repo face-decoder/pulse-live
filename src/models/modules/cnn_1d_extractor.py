@@ -3,11 +3,6 @@ import torch.nn.functional as F
 
 
 class CNN1DExtractor(nn.Module):
-    """
-    Temporal feature extractor.
-    Change input shape from (Batch, In_Channels, Time) to (Batch, Out_Channels, Time/Pool).
-    """
-
     def __init__(self, in_channels, out_channels=64, pool_size=2, dropout_p=0.0):
         super().__init__()
         self.conv1 = nn.Conv1d(in_channels, out_channels // 2, kernel_size=3, padding=1)

@@ -1,10 +1,3 @@
-"""Public API for the models package.
-
-Exports the inferencer factory so callers can do::
-
-    from src.models import get_inferencer
-"""
-
 from .inferencer import (
     BaseAnxietyInferencer,
     CnnBiLstmAttentionInferencer,

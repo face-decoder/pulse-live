@@ -40,12 +40,13 @@ def calculate_total(items):
         total += item.price
     return total
 
+
 # Bad - using 2 spaces or tabs
 def calculate_total(items):
-  total = 0
-  for item in items:
-    total += item.price
-  return total
+    total = 0
+    for item in items:
+        total += item.price
+    return total
 ```
 
 ### Line Length
@@ -69,8 +70,7 @@ message = (
 )
 
 # Avoid - backslash continuation (use only when necessary)
-result = some_very_long_variable_name + \
-         another_very_long_variable_name
+result = some_very_long_variable_name + another_very_long_variable_name
 ```
 
 ### Blank Lines
@@ -131,17 +131,20 @@ x = 1
 y = 2
 long_variable = 3
 
+
 def complex(real, imag=0.0):
     return magic(r=real, i=imag)
 
+
 # Bad
-spam( ham[ 1 ], { eggs: 2 } )
-x             = 1
-y             = 2
+spam(ham[1], {eggs: 2})
+x = 1
+y = 2
 long_variable = 3
 
-def complex(real, imag = 0.0):
-    return magic(r = real, i = imag)
+
+def complex(real, imag=0.0):
+    return magic(r=real, i=imag)
 ```
 
 ### String Quotes
@@ -156,6 +159,7 @@ message = "Hello, World!"
 # Use other quote to avoid escaping
 sql = "SELECT * FROM users WHERE name = 'Alice'"
 html = '<div class="container">Content</div>'
+
 
 # Triple double quotes for docstrings (PEP 257)
 def my_function():
@@ -177,16 +181,19 @@ user_name = "alice"
 total_count = 42
 is_valid = True
 
+
 def calculate_average(numbers):
     return sum(numbers) / len(numbers)
+
 
 def get_user_by_id(user_id):
     pass
 
+
 # Bad
 userName = "alice"  # camelCase
-TotalCount = 42     # PascalCase
-IsValid = True      # PascalCase
+TotalCount = 42  # PascalCase
+IsValid = True  # PascalCase
 ```
 
 ### Classes
@@ -198,15 +205,19 @@ Use `PascalCase` (CapWords) for class names.
 class UserAccount:
     pass
 
+
 class HTTPRequestHandler:
     pass
+
 
 class XMLParser:
     pass
 
+
 # Bad
 class user_account:
     pass
+
 
 class httpRequestHandler:
     pass
@@ -234,9 +245,9 @@ Use leading underscores to indicate visibility.
 ```python
 class MyClass:
     def __init__(self):
-        self.public_attr = 1        # Public
-        self._protected_attr = 2    # Protected (convention)
-        self.__private_attr = 3     # Private (name mangling)
+        self.public_attr = 1  # Public
+        self._protected_attr = 2  # Protected (convention)
+        self.__private_attr = 3  # Private (name mangling)
 
     def public_method(self):
         pass
@@ -295,12 +306,15 @@ age: int = 30
 price: float = 19.99
 is_active: bool = True
 
+
 # Functions
 def greet(name: str) -> str:
     return f"Hello, {name}!"
 
+
 def add(a: int, b: int) -> int:
     return a + b
+
 
 def process_data(data: bytes) -> None:
     # Function returns None
@@ -332,15 +346,19 @@ def find_user(user_id: int) -> User | None:
     """Returns User or None if not found."""
     pass
 
+
 def process(value: int | str | float) -> str:
     """Accepts int, str, or float."""
     return str(value)
 
+
 # For Python 3.9 and earlier
 from typing import Optional, Union
 
+
 def find_user(user_id: int) -> Optional[User]:
     pass
+
 
 def process(value: Union[int, str, float]) -> str:
     return str(value)
@@ -371,13 +389,16 @@ Matrix: TypeAlias = list[Vector]
 ```python
 from collections.abc import Callable
 
+
 # Function that takes int and str, returns bool
 def register_callback(callback: Callable[[int, str], bool]) -> None:
     pass
 
+
 # Function that takes any args and returns None
 def log_call(func: Callable[..., None]) -> None:
     pass
+
 
 # Async callable
 from collections.abc import Awaitable
@@ -394,6 +415,7 @@ T = TypeVar("T")
 K = TypeVar("K")
 V = TypeVar("V")
 
+
 class Stack(Generic[T]):
     def __init__(self) -> None:
         self._items: list[T] = []
@@ -404,11 +426,14 @@ class Stack(Generic[T]):
     def pop(self) -> T:
         return self._items.pop()
 
+
 # Constrained TypeVar
 Number = TypeVar("Number", int, float)
 
+
 def add_numbers(a: Number, b: Number) -> Number:
     return a + b
+
 
 # Bound TypeVar
 from typing import Comparable
@@ -421,19 +446,24 @@ Sortable = TypeVar("Sortable", bound=Comparable)
 ```python
 from typing import Protocol
 
+
 class Drawable(Protocol):
     def draw(self) -> None: ...
+
 
 class Circle:
     def draw(self) -> None:
         print("Drawing circle")
 
+
 class Square:
     def draw(self) -> None:
         print("Drawing square")
 
+
 def render(shape: Drawable) -> None:
     shape.draw()
+
 
 # Both Circle and Square are valid Drawable without explicit inheritance
 render(Circle())
@@ -445,15 +475,18 @@ render(Square())
 ```python
 from typing import TypedDict, Required, NotRequired
 
+
 class UserDict(TypedDict):
     name: str
     age: int
     email: str | None
 
+
 # With optional fields (Python 3.11+)
 class ConfigDict(TypedDict, total=False):
     debug: bool
     log_level: str
+
 
 # Mixed required and optional
 class RequestDict(TypedDict):
@@ -467,6 +500,7 @@ class RequestDict(TypedDict):
 
 ```python
 from typing import Self
+
 
 class Builder:
     def __init__(self) -> None:
@@ -489,24 +523,31 @@ class Builder:
 # 2. Use abstract types for parameters, concrete for returns
 from collections.abc import Sequence, Mapping, Iterable
 
+
 def process_items(items: Sequence[int]) -> list[int]:  # Accept any sequence
     return [x * 2 for x in items]
+
 
 # 3. Use | None instead of Optional (Python 3.10+)
 def get_user(id: int) -> User | None:
     pass
 
+
 # 4. Avoid Any when possible, but use it when truly needed
 from typing import Any
+
 
 def deserialize(data: bytes) -> Any:
     pass
 
+
 # 5. Use TypeGuard for type narrowing
 from typing import TypeGuard
 
+
 def is_str_list(val: list[object]) -> TypeGuard[list[str]]:
     return all(isinstance(x, str) for x in val)
+
 
 # 6. Use Final for constants
 from typing import Final
@@ -753,22 +794,31 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 # Custom exception hierarchy
 class AppError(Exception):
     """Base exception for application errors."""
+
     pass
+
 
 class ValidationError(AppError):
     """Raised when validation fails."""
+
     pass
+
 
 class NotFoundError(AppError):
     """Raised when a resource is not found."""
+
     pass
+
 
 class AuthenticationError(AppError):
     """Raised when authentication fails."""
+
     pass
+
 
 class AuthorizationError(AppError):
     """Raised when user lacks permissions."""
+
     pass
 ```
 
@@ -848,6 +898,7 @@ async def fetch_all(urls: list[str]) -> list[Response]:
         tasks = [tg.create_task(fetch(url)) for url in urls]
     return [t.result() for t in tasks]
 
+
 # Catch exception groups
 try:
     results = await fetch_all(urls)
@@ -881,7 +932,7 @@ except KeyError:
 value = dictionary.get(key, default)
 
 # LBYL (Less Pythonic)
-if hasattr(obj, 'method'):
+if hasattr(obj, "method"):
     obj.method()
 
 # EAFP (More Pythonic)
@@ -910,6 +961,7 @@ logging.basicConfig(
 # Get logger for module
 logger = logging.getLogger(__name__)
 
+
 def process_data(data):
     logger.info("Processing data started")
     logger.debug(f"Data size: {len(data)}")
@@ -932,12 +984,10 @@ LOGGING_CONFIG = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "standard": {
-            "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        },
+        "standard": {"format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"},
         "json": {
             "class": "pythonjsonlogger.jsonlogger.JsonFormatter",
-            "format": "%(asctime)s %(name)s %(levelname)s %(message)s"
+            "format": "%(asctime)s %(name)s %(levelname)s %(message)s",
         },
     },
     "handlers": {
@@ -1032,7 +1082,7 @@ logger.info(
         "order_id": order.id,
         "user_id": user.id,
         "total": order.total,
-    }
+    },
 )
 
 # 4. Use exception() for errors with traceback
@@ -1060,15 +1110,19 @@ logger.info(f"User login: {username}")
 import pytest
 from my_package.calculator import add, divide
 
+
 def test_add_positive_numbers():
     assert add(2, 3) == 5
+
 
 def test_add_negative_numbers():
     assert add(-1, -1) == -2
 
+
 def test_divide_by_zero():
     with pytest.raises(ZeroDivisionError):
         divide(1, 0)
+
 
 def test_divide_float_result():
     result = divide(5, 2)
@@ -1083,6 +1137,7 @@ import pytest
 from my_package.database import Database
 from my_package.models import User
 
+
 @pytest.fixture
 def db():
     """Create a test database."""
@@ -1091,12 +1146,14 @@ def db():
     yield database
     database.close()
 
+
 @pytest.fixture
 def sample_user(db):
     """Create a sample user."""
     user = User(name="Test User", email="test@example.com")
     db.save(user)
     return user
+
 
 # Using fixtures
 def test_user_creation(db, sample_user):
@@ -1109,21 +1166,29 @@ def test_user_creation(db, sample_user):
 ```python
 import pytest
 
-@pytest.mark.parametrize("input,expected", [
-    ("hello", "HELLO"),
-    ("world", "WORLD"),
-    ("Python", "PYTHON"),
-    ("", ""),
-])
+
+@pytest.mark.parametrize(
+    "input,expected",
+    [
+        ("hello", "HELLO"),
+        ("world", "WORLD"),
+        ("Python", "PYTHON"),
+        ("", ""),
+    ],
+)
 def test_uppercase(input, expected):
     assert input.upper() == expected
 
-@pytest.mark.parametrize("a,b,expected", [
-    (1, 2, 3),
-    (0, 0, 0),
-    (-1, 1, 0),
-    (100, 200, 300),
-])
+
+@pytest.mark.parametrize(
+    "a,b,expected",
+    [
+        (1, 2, 3),
+        (0, 0, 0),
+        (-1, 1, 0),
+        (100, 200, 300),
+    ],
+)
 def test_add(a, b, expected):
     assert add(a, b) == expected
 ```
@@ -1133,6 +1198,7 @@ def test_add(a, b, expected):
 ```python
 from unittest.mock import Mock, patch, AsyncMock
 import pytest
+
 
 # Mocking a function
 def test_send_email():
@@ -1145,6 +1211,7 @@ def test_send_email():
             subject="Welcome!",
         )
 
+
 # Mocking a class
 def test_api_client():
     mock_response = Mock()
@@ -1154,6 +1221,7 @@ def test_api_client():
     with patch("my_package.api.httpx.get", return_value=mock_response):
         result = fetch_data()
         assert result == {"data": "test"}
+
 
 # Async mocking
 @pytest.mark.asyncio
@@ -1193,10 +1261,12 @@ class TestUserService:
 ```python
 import pytest
 
+
 @pytest.mark.asyncio
 async def test_async_fetch():
     result = await fetch_data("https://api.example.com")
     assert result["status"] == "ok"
+
 
 @pytest.mark.asyncio
 async def test_async_context_manager():
@@ -1254,6 +1324,7 @@ def fetch_data(url: str, timeout: int = 30) -> dict:
         'ok'
     """
     pass
+
 
 # NumPy Style
 def calculate_statistics(data: list[float]) -> tuple[float, float, float]:
@@ -1347,16 +1418,19 @@ Functions:
 ```python
 import asyncio
 
+
 async def fetch_data(url: str) -> dict:
     """Fetch data from URL asynchronously."""
     async with httpx.AsyncClient() as client:
         response = await client.get(url)
         return response.json()
 
+
 async def main():
     # Run single coroutine
     data = await fetch_data("https://api.example.com/data")
     print(data)
+
 
 # Entry point
 asyncio.run(main())
@@ -1367,6 +1441,7 @@ asyncio.run(main())
 ```python
 import asyncio
 
+
 async def fetch_all(urls: list[str]) -> list[dict]:
     """Fetch multiple URLs concurrently."""
     async with httpx.AsyncClient() as client:
@@ -1374,16 +1449,14 @@ async def fetch_all(urls: list[str]) -> list[dict]:
         responses = await asyncio.gather(*tasks)
         return [r.json() for r in responses]
 
+
 # With error handling
 async def fetch_all_safe(urls: list[str]) -> list[dict | None]:
     """Fetch URLs, returning None for failures."""
     async with httpx.AsyncClient() as client:
         tasks = [client.get(url) for url in urls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        return [
-            r.json() if not isinstance(r, Exception) else None
-            for r in results
-        ]
+        return [r.json() if not isinstance(r, Exception) else None for r in results]
 ```
 
 ### Task Groups (Python 3.11+)
@@ -1391,11 +1464,13 @@ async def fetch_all_safe(urls: list[str]) -> list[dict | None]:
 ```python
 import asyncio
 
+
 async def process_batch(items: list[str]) -> list[Result]:
     """Process items with automatic cancellation on error."""
     async with asyncio.TaskGroup() as tg:
         tasks = [tg.create_task(process_item(item)) for item in items]
     return [task.result() for task in tasks]
+
 
 # If any task fails, all others are cancelled automatically
 ```
@@ -1415,6 +1490,7 @@ class AsyncDatabaseConnection:
 
     async def execute(self, query: str) -> list:
         return await self.conn.fetch(query)
+
 
 # Usage
 async with AsyncDatabaseConnection() as db:
@@ -1436,6 +1512,7 @@ async def fetch_pages(url: str) -> AsyncIterator[dict]:
             yield data
             page += 1
 
+
 # Usage
 async for page in fetch_pages("https://api.example.com/items"):
     process_page(page)
@@ -1448,16 +1525,20 @@ async for page in fetch_pages("https://api.example.com/items"):
 async def main():
     await do_work()
 
+
 asyncio.run(main())
+
 
 # 2. Don't block the event loop
 # Bad
 async def bad_example():
     time.sleep(1)  # Blocks!
 
+
 # Good
 async def good_example():
     await asyncio.sleep(1)
+
 
 # 3. Use run_in_executor for CPU-bound work
 async def process_image(image_data: bytes) -> bytes:
@@ -1469,6 +1550,7 @@ async def process_image(image_data: bytes) -> bytes:
     )
     return result
 
+
 # 4. Use semaphores to limit concurrency
 async def fetch_with_limit(urls: list[str], max_concurrent: int = 10):
     semaphore = asyncio.Semaphore(max_concurrent)
@@ -1479,6 +1561,7 @@ async def fetch_with_limit(urls: list[str], max_concurrent: int = 10):
                 return await client.get(url)
 
     return await asyncio.gather(*[fetch_one(url) for url in urls])
+
 
 # 5. Handle cancellation gracefully
 async def cancellable_task():
@@ -1501,6 +1584,7 @@ async def cancellable_task():
 import cProfile
 import pstats
 
+
 # Profile a function
 def profile_function():
     profiler = cProfile.Profile()
@@ -1514,13 +1598,14 @@ def profile_function():
     stats.sort_stats("cumulative")
     stats.print_stats(10)  # Top 10 functions
 
+
 # Line profiler (install: pip install line_profiler)
 # Add @profile decorator and run: kernprof -l -v script.py
 @profile
 def slow_function():
     result = []
     for i in range(10000):
-        result.append(i ** 2)
+        result.append(i**2)
     return result
 ```
 
@@ -1533,11 +1618,13 @@ def get_all_lines(filename: str) -> list[str]:
     with open(filename) as f:
         return f.readlines()
 
+
 # Good - yields one line at a time
 def get_all_lines(filename: str) -> Iterator[str]:
     with open(filename) as f:
         for line in f:
             yield line
+
 
 # 2. Use __slots__ for memory-efficient classes
 class Point:
@@ -1546,6 +1633,7 @@ class Point:
     def __init__(self, x: float, y: float):
         self.x = x
         self.y = y
+
 
 # 3. Use appropriate data structures
 from collections import deque
@@ -1566,10 +1654,11 @@ if item not in seen:
 # Slower
 result = []
 for i in range(1000):
-    result.append(i ** 2)
+    result.append(i**2)
 
 # Faster
-result = [i ** 2 for i in range(1000)]
+result = [i**2 for i in range(1000)]
+
 
 # 2. Local variables vs global
 # Slower
@@ -1577,11 +1666,13 @@ def slow():
     for _ in range(1000):
         x = global_var + 1
 
+
 # Faster
 def fast():
     local_var = global_var
     for _ in range(1000):
         x = local_var + 1
+
 
 # 3. String concatenation
 # Slower
@@ -1617,6 +1708,7 @@ for item in items:
 ```python
 from functools import lru_cache, cache
 
+
 # LRU cache with size limit
 @lru_cache(maxsize=128)
 def fibonacci(n: int) -> int:
@@ -1624,10 +1716,12 @@ def fibonacci(n: int) -> int:
         return n
     return fibonacci(n - 1) + fibonacci(n - 2)
 
+
 # Unlimited cache (Python 3.9+)
 @cache
 def expensive_computation(x: int) -> int:
-    return x ** 100
+    return x**100
+
 
 # Clear cache
 fibonacci.cache_clear()
@@ -1644,6 +1738,7 @@ print(fibonacci.cache_info())
 
 ```python
 from pydantic import BaseModel, EmailStr, Field, validator
+
 
 class UserCreate(BaseModel):
     """Validated user creation request."""
@@ -1675,10 +1770,12 @@ def get_user_bad(username: str):
     query = f"SELECT * FROM users WHERE username = '{username}'"
     cursor.execute(query)
 
+
 # Good - parameterized query
 def get_user_good(username: str):
     query = "SELECT * FROM users WHERE username = %s"
     cursor.execute(query, (username,))
+
 
 # Good - ORM (SQLAlchemy)
 def get_user_orm(username: str):
@@ -1696,15 +1793,19 @@ from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
+
 # Generate secure tokens
 def generate_token(length: int = 32) -> str:
     return secrets.token_urlsafe(length)
+
 
 def generate_api_key() -> str:
     return secrets.token_hex(32)
@@ -1724,12 +1825,14 @@ API_KEY = "sk-1234567890abcdef"
 load_dotenv()
 API_KEY = os.environ["API_KEY"]
 
+
 # Good - with validation
 def get_required_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
         raise EnvironmentError(f"Required environment variable {name} not set")
     return value
+
 
 DATABASE_URL = get_required_env("DATABASE_URL")
 ```
@@ -1738,6 +1841,7 @@ DATABASE_URL = get_required_env("DATABASE_URL")
 
 ```python
 from pathlib import Path
+
 
 def safe_file_read(base_dir: str, filename: str) -> str:
     """Safely read a file, preventing path traversal."""
@@ -1769,6 +1873,7 @@ def process_command(command: dict) -> str:
         case _:
             return "Unknown command"
 
+
 # With guards
 def categorize_number(n: int) -> str:
     match n:
@@ -1781,11 +1886,13 @@ def categorize_number(n: int) -> str:
         case _:
             return "positive odd"
 
+
 # Matching classes
 class Point:
     def __init__(self, x: int, y: int):
         self.x = x
         self.y = y
+
 
 def describe_point(point: Point) -> str:
     match point:
@@ -1810,7 +1917,7 @@ if (n := len(data)) > 10:
 results = [y for x in data if (y := expensive_computation(x)) > 0]
 
 # In while loops
-while (line := file.readline()):
+while line := file.readline():
     process(line)
 ```
 
@@ -1819,6 +1926,7 @@ while (line := file.readline()):
 ```python
 from dataclasses import dataclass, field
 from typing import ClassVar
+
 
 @dataclass
 class Product:
@@ -1833,11 +1941,13 @@ class Product:
     def total_value(self) -> float:
         return self.price * self.quantity
 
+
 # Frozen (immutable) dataclass
 @dataclass(frozen=True)
 class Point:
     x: float
     y: float
+
 
 # With slots for memory efficiency
 @dataclass(slots=True)
@@ -1861,8 +1971,8 @@ print(f"Sum: {1 + 2}")
 # Formatting
 print(f"Value: {value:.2f}")  # 123.46
 print(f"Padded: {name:>10}")  # "     Alice"
-print(f"Binary: {42:b}")      # "101010"
-print(f"Hex: {255:x}")        # "ff"
+print(f"Binary: {42:b}")  # "101010"
+print(f"Hex: {255:x}")  # "ff"
 
 # Debug mode (Python 3.8+)
 x = 10
@@ -1881,12 +1991,14 @@ from contextvars import ContextVar
 # Define context variable
 request_id: ContextVar[str] = ContextVar("request_id", default="unknown")
 
+
 async def handle_request(req_id: str):
     token = request_id.set(req_id)
     try:
         await process_request()
     finally:
         request_id.reset(token)
+
 
 async def process_request():
     # Access context variable from anywhere in the call stack
@@ -2010,12 +2122,15 @@ class UserManager:
     def send_email(self, user): ...
     def generate_report(self, users): ...
 
+
 # Good - separate responsibilities
 class UserService:
     def create_user(self, data): ...
 
+
 class EmailService:
     def send_email(self, recipient, message): ...
+
 
 class ReportGenerator:
     def generate(self, data): ...
@@ -2025,14 +2140,17 @@ class ReportGenerator:
 # Open for extension, closed for modification
 from abc import ABC, abstractmethod
 
+
 class PaymentProcessor(ABC):
     @abstractmethod
     def process(self, amount: float) -> bool: ...
+
 
 class CreditCardProcessor(PaymentProcessor):
     def process(self, amount: float) -> bool:
         # Credit card logic
         return True
+
 
 class PayPalProcessor(PaymentProcessor):
     def process(self, amount: float) -> bool:
@@ -2049,6 +2167,7 @@ class OrderService:
     def checkout(self, order: Order) -> bool:
         return self.payment_processor.process(order.total)
 
+
 # Inject dependency
 service = OrderService(CreditCardProcessor())
 ```
@@ -2058,17 +2177,21 @@ service = OrderService(CreditCardProcessor())
 ```python
 from abc import ABC, abstractmethod
 
+
 class Document(ABC):
     @abstractmethod
     def render(self) -> str: ...
+
 
 class PDFDocument(Document):
     def render(self) -> str:
         return "PDF content"
 
+
 class HTMLDocument(Document):
     def render(self) -> str:
         return "<html>content</html>"
+
 
 class DocumentFactory:
     @staticmethod
@@ -2081,6 +2204,7 @@ class DocumentFactory:
             case _:
                 raise ValueError(f"Unknown document type: {doc_type}")
 
+
 # Usage
 doc = DocumentFactory.create("pdf")
 ```
@@ -2092,6 +2216,7 @@ from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 
 T = TypeVar("T")
+
 
 class Repository(ABC, Generic[T]):
     @abstractmethod
@@ -2108,6 +2233,7 @@ class Repository(ABC, Generic[T]):
 
     @abstractmethod
     def delete(self, id: int) -> None: ...
+
 
 class UserRepository(Repository[User]):
     def __init__(self, session: Session):
@@ -2142,8 +2268,10 @@ class UserRepository(Repository[User]):
 from functools import wraps
 import time
 
+
 def retry(max_attempts: int = 3, delay: float = 1.0):
     """Retry decorator with exponential backoff."""
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -2154,10 +2282,13 @@ def retry(max_attempts: int = 3, delay: float = 1.0):
                 except Exception as e:
                     last_exception = e
                     if attempt < max_attempts - 1:
-                        time.sleep(delay * (2 ** attempt))
+                        time.sleep(delay * (2**attempt))
             raise last_exception
+
         return wrapper
+
     return decorator
+
 
 @retry(max_attempts=3, delay=0.5)
 def fetch_data(url: str) -> dict:
@@ -2171,6 +2302,7 @@ def fetch_data(url: str) -> dict:
 from contextlib import contextmanager
 from typing import Generator
 
+
 @contextmanager
 def timed_operation(name: str) -> Generator[None, None, None]:
     """Context manager for timing operations."""
@@ -2181,9 +2313,11 @@ def timed_operation(name: str) -> Generator[None, None, None]:
         elapsed = time.perf_counter() - start
         print(f"{name} took {elapsed:.3f} seconds")
 
+
 # Usage
 with timed_operation("data processing"):
     process_large_dataset()
+
 
 # Class-based context manager
 class DatabaseTransaction:

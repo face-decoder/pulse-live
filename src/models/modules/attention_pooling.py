@@ -4,11 +4,6 @@ import torch.nn.functional as F
 
 
 class AttentionPooling(nn.Module):
-    """
-    Single-Head Attention use Pooling to flatten time dimension.
-    Used as a replacement for x.mean(dim=1) to focus model on apex frame.
-    """
-
     def __init__(self, hidden_size):
         super().__init__()
         self.attention = nn.Sequential(
@@ -18,15 +13,11 @@ class AttentionPooling(nn.Module):
         )
 
     def forward(self, x, mask=None):
-        # x shape: (Batch, Time, Hidden)
-        attn_weights = self.attention(x)  # (Batch, Time, 1)
+        attn_weights = self.attention(x)
 
         if mask is not None:
-            # mask shape: (Batch, Time) where True = padding
-            # If using pooling, time length decreases, so mask needs to be adjusted.
-            # Assumption: mask is already adjusted or not used (ignored with -inf)
             attn_weights = attn_weights.masked_fill(mask.unsqueeze(-1), float("-inf"))
 
         attn_weights = F.softmax(attn_weights, dim=1)
-        context_vector = torch.sum(attn_weights * x, dim=1)  # (Batch, Hidden)
+        context_vector = torch.sum(attn_weights * x, dim=1)
         return context_vector, attn_weights

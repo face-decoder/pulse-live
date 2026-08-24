@@ -24,8 +24,11 @@ result = await async_function()
 ```python
 # Wrong - blocks event loop
 import time
+
+
 async def bad():
     time.sleep(1)  # Blocks entire event loop!
+
 
 # Correct
 async def good():
@@ -60,6 +63,7 @@ asyncio.run(main())
 async def bad():
     requests.get(url)  # Blocking!
 
+
 # Correct - use async library
 async def good():
     async with aiohttp.ClientSession() as session:
@@ -93,5 +97,6 @@ async def good():
 ```python
 # Enable asyncio debug mode
 import asyncio
+
 asyncio.run(main(), debug=True)
 ```

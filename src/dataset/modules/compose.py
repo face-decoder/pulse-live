@@ -1,30 +1,12 @@
 from __future__ import annotations
 
-from typing import Callable, List
+from collections.abc import Callable
 
 from .subject_sample import SubjectSample, TransformOutput
 
 
 class Compose:
-    """
-    Chaining some transforms sequentially.
-
-    Some of torchvision.Compose:
-      - First step receives SubjectSample and outputs TransformOutput
-      - Next step receives TransformOutput and outputs TransformOutput
-
-    Usage:
-        transform = Compose([
-            WindowSelector(phase_includes=["onset", "apex"]),
-            BehavioralFeatures(),
-            PadAndMask(max_len=512),
-            ChannelZScore(),
-            AugmentFlow(training=True),
-        ])
-        output: TransformOutput = transform(subject_sample)
-    """
-
-    def __init__(self, transforms: List[Callable]):
+    def __init__(self, transforms: list[Callable]):
         self.transforms = list(transforms)
 
     def __call__(self, sample: SubjectSample) -> TransformOutput:
@@ -46,15 +28,13 @@ class Compose:
                     )
         return result
 
-    def train(self) -> "Compose":
-        """Set semua transform yang memiliki .train() ke mode training."""
+    def train(self) -> Compose:
         for t in self.transforms:
             if hasattr(t, "train"):
                 t.train()
         return self
 
-    def eval(self) -> "Compose":
-        """Set semua transform ke mode eval (disable augmentasi)."""
+    def eval(self) -> Compose:
         for t in self.transforms:
             if hasattr(t, "eval"):
                 t.eval()

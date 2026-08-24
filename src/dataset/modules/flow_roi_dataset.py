@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -12,31 +11,14 @@ from .compose import Compose
 
 
 class FlowROIDataset(AnxietyDatasetBase):
-    """
-    Dataset untuk flow berbasis ROI.
-
-    Mengharapkan file .npz dengan key:
-      - "flow"      : (T, N_roi, 2, H, W)  wajib
-      - "roi_order" : list nama ROI         opsional
-      - "magnitudes": (T,)                  opsional (untuk window detection fallback)
-
-    Args:
-        metadata_df   : DataFrame dengan kolom wajib + "clip", "npy_path"
-        transform     : Compose pipeline (wajib diisi untuk mode apapun)
-        detector      : ApexWindowDetector instance
-        roi_order     : urutan ROI; default ROI_ORDER_DEFAULT
-        cache_dir     : direktori cache tensor
-        force_rebuild : paksa rebuild cache
-    """
-
     def __init__(
         self,
         metadata_df: pd.DataFrame,
-        transform: Optional[Compose] = None,
+        transform: Compose | None = None,
         detector=None,
-        roi_order: List[str] = None,
+        roi_order: list[str] = None,
         phase_mode: str = "onset_to_apex",
-        cache_dir: Optional[Union[str, Path]] = None,
+        cache_dir: str | Path | None = None,
         force_rebuild: bool = False,
     ):
         self.roi_order = roi_order or ROI_ORDER_DEFAULT
@@ -66,9 +48,8 @@ class FlowROIDataset(AnxietyDatasetBase):
             raise ValueError(f"Flow ROI harus (T, N_roi, 2, H, W), got {flow.shape}")
         return flow
 
-    def _detect_windows(self, flow: np.ndarray) -> List[Tuple[int, int, int]]:
+    def _detect_windows(self, flow: np.ndarray) -> list[tuple[int, int, int]]:
         if self.detector is None:
-            # Fallback: seluruh clip sebagai satu window
             T = flow.shape[0]
             apex = T // 2
             return [(0, apex, T)]

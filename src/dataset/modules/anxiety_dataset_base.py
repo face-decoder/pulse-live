@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class AnxietyDatasetBase(Dataset, ABC):
-    REQUIRED_COLUMNS: Tuple[str, ...] = (
+    REQUIRED_COLUMNS: tuple[str, ...] = (
         "subject_id",
         "label",
         "is_valid",
@@ -29,8 +29,8 @@ class AnxietyDatasetBase(Dataset, ABC):
     def __init__(
         self,
         metadata_df: pd.DataFrame,
-        transform: Optional[Compose] = None,
-        cache_dir: Optional[Union[str, Path]] = None,
+        transform: Compose | None = None,
+        cache_dir: str | Path | None = None,
         force_rebuild: bool = False,
     ):
         missing = [c for c in self.REQUIRED_COLUMNS if c not in metadata_df.columns]
@@ -46,35 +46,20 @@ class AnxietyDatasetBase(Dataset, ABC):
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        self._groups = self._group_by_subject()
+        self._groups = self.__group_by_subject()
         self.subjects = list(self._groups.keys())
-        self._mem_cache: Dict[int, TransformOutput] = {}
+        self._mem_cache: dict[int, TransformOutput] = {}
 
     @abstractmethod
-    def _load_flow(self, npy_path: str) -> np.ndarray:
-        """
-        Load raw optical flow dari file.
-
-        Returns:
-            ROI:      (T, N_roi, 2, H, W)
-            FullFace: (T, 2, H, W)
-        """
-        ...
+    def _load_flow(self, npy_path: str) -> np.ndarray: ...
 
     @abstractmethod
-    def _detect_windows(self, flow: np.ndarray) -> List[Tuple[int, int, int]]:
-        """
-        Deteksi apex windows dari flow.
+    def _detect_windows(self, flow: np.ndarray) -> list[tuple[int, int, int]]: ...
 
-        Returns:
-            List of (left, apex_frame, right) tuples.
-        """
-        ...
-
-    def _group_by_subject(self) -> Dict[str, pd.DataFrame]:
+    def __group_by_subject(self) -> dict[str, pd.DataFrame]:
         return {sid: grp for sid, grp in self.data.groupby("subject_id", sort=True)}
 
-    def _get_label(self, grp: pd.DataFrame) -> int:
+    def __get_label(self, grp: pd.DataFrame) -> int:
         for raw_label in grp["label"].dropna().astype(str).str.strip().str.lower():
             if raw_label in self.LABEL_MAP:
                 return self.LABEL_MAP[raw_label]
@@ -84,13 +69,12 @@ class AnxietyDatasetBase(Dataset, ABC):
             f"Label tersedia: {list(grp['label'].unique())}"
         )
 
-    def _build_subject_sample(self, subject_id: str) -> SubjectSample:
-        """Gabungkan semua clip satu subjek menjadi satu SubjectSample."""
+    def __build_subject_sample(self, subject_id: str) -> SubjectSample:
         grp = self._groups[subject_id]
-        label = self._get_label(grp)
+        label = self.__get_label(grp)
 
-        all_flows: List[np.ndarray] = []
-        all_windows: List[Tuple[int, int, int]] = []
+        all_flows: list[np.ndarray] = []
+        all_windows: list[tuple[int, int, int]] = []
         frame_offset: int = 0
 
         rows = (
@@ -105,8 +89,8 @@ class AnxietyDatasetBase(Dataset, ABC):
                 logger.warning("[%s] File tidak ditemukan: %s", subject_id, npy_path)
                 continue
             try:
-                flow = self._load_flow(npy_path)  # (T, ...)
-                windows = self._detect_windows(flow)  # [(l, p, r), ...]
+                flow = self._load_flow(npy_path)
+                windows = self._detect_windows(flow)
 
                 for l, p, r in windows:
                     all_windows.append(
@@ -126,9 +110,9 @@ class AnxietyDatasetBase(Dataset, ABC):
         if len(all_flows) == 0:
             raise RuntimeError(f"Subjek {subject_id} tidak memiliki clip yang valid.")
 
-        merged_flow = np.concatenate(all_flows, axis=0)  # (T_total, ...)
+        merged_flow = np.concatenate(all_flows, axis=0)
 
-        meta: Dict[str, Any] = {
+        meta: dict[str, Any] = {
             "subject_id": subject_id,
             "n_clips": len(all_flows),
             "n_windows": len(all_windows),
@@ -143,14 +127,14 @@ class AnxietyDatasetBase(Dataset, ABC):
             meta=meta,
         )
 
-    def _cache_key(self, subject_id: str) -> str:
+    def __cache_key(self, subject_id: str) -> str:
         transform_repr = repr(self.transform) if self.transform else "none"
         return f"{subject_id}_{abs(hash(transform_repr)) % 10**8}"
 
-    def _cache_path(self, subject_id: str) -> Optional[Path]:
+    def __cache_path(self, subject_id: str) -> Path | None:
         if self.cache_dir is None:
             return None
-        return self.cache_dir / f"{self._cache_key(subject_id)}.pt"
+        return self.cache_dir / f"{self.__cache_key(subject_id)}.pt"
 
     def __len__(self) -> int:
         return len(self.subjects)
@@ -160,14 +144,14 @@ class AnxietyDatasetBase(Dataset, ABC):
             return self._mem_cache[index]
 
         subject_id = self.subjects[index]
-        cache_path = self._cache_path(subject_id)
+        cache_path = self.__cache_path(subject_id)
 
         if cache_path and cache_path.exists() and not self.force_rebuild:
             try:
                 result = torch.load(cache_path, map_location="cpu", weights_only=False)
             except Exception as exc:
                 logger.warning("[%s] Cache load gagal, rebuild: %s", subject_id, exc)
-                sample = self._build_subject_sample(subject_id)
+                sample = self.__build_subject_sample(subject_id)
                 if self.transform is not None:
                     result = self.transform(sample)
                 else:
@@ -178,7 +162,7 @@ class AnxietyDatasetBase(Dataset, ABC):
                 if cache_path:
                     torch.save(result, cache_path)
         else:
-            sample = self._build_subject_sample(subject_id)
+            sample = self.__build_subject_sample(subject_id)
             if self.transform is not None:
                 result = self.transform(sample)
             else:
@@ -192,24 +176,21 @@ class AnxietyDatasetBase(Dataset, ABC):
         self._mem_cache[index] = result
         return result
 
-    def group_by_subject(self) -> Dict[str, int]:
+    def group_by_subject(self) -> dict[str, int]:
         return {sid: i for i, sid in enumerate(self.subjects)}
 
     def get_labels(self) -> np.ndarray:
-        """Return subject-level labels aligned with ``self.subjects``."""
-        labels: List[int] = []
+        labels: list[int] = []
         for subject_id in self.subjects:
             grp = self._groups[subject_id]
-            labels.append(self._get_label(grp))
+            labels.append(self.__get_label(grp))
         return np.asarray(labels, dtype=np.int64)
 
     def get_class_counts(self) -> np.ndarray:
-        """Return class counts for the current dataset split."""
         labels = self.get_labels()
         return np.bincount(labels, minlength=2)
 
     def make_weighted_sampler(self) -> WeightedRandomSampler:
-        """Build a class-balanced sampler for subject-level training."""
         labels = self.get_labels()
         counts = np.bincount(labels, minlength=2)
         weights = (1.0 / np.maximum(counts, 1))[labels]

@@ -42,4 +42,19 @@ torchvision = [
 mediapipe = { path = "packages/mediapipe-0.10.15-cp312-cp312-linux_x86_64.whl" }
 opencv-cuda = { path = "packages/opencv_cuda-4.15.0-cp312-cp312-linux_x86_64.whl" }
 
+[tool.ruff]
+extend-exclude = ["scratch", "poc-notebooks"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "W", "BLE001"]
+
+[tool.ruff.lint.per-file-ignores]
+# .env must be loaded before any src imports pick up environment variables.
+"main.py" = ["E402"]
+# Legacy research/training modules kept as-is (pre-existing debt, not app code):
+"src/apex/*" = ["BLE001"]
+"src/dataset/*" = ["BLE001", "E741", "F401"]
+"src/datasource/*" = ["BLE001", "F401"]
+"src/plotter/*" = ["F401"]
+
 

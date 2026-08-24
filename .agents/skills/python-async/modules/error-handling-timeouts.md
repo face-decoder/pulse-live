@@ -17,11 +17,13 @@ Handle errors gracefully in concurrent operations using try/except and gather's 
 from typing import Optional
 import asyncio
 
+
 async def risky_operation(item_id: int) -> dict:
     await asyncio.sleep(0.1)
     if item_id % 3 == 0:
         raise ValueError(f"Item {item_id} failed")
     return {"id": item_id, "status": "success"}
+
 
 async def safe_operation(item_id: int) -> Optional[dict]:
     try:
@@ -29,6 +31,7 @@ async def safe_operation(item_id: int) -> Optional[dict]:
     except ValueError as e:
         print(f"Error: {e}")
         return None
+
 
 async def process_items(item_ids: list[int]):
     tasks = [safe_operation(iid) for iid in item_ids]
@@ -45,6 +48,7 @@ Prevent operations from hanging indefinitely with timeouts.
 async def slow_operation(delay: int) -> str:
     await asyncio.sleep(delay)
     return f"Completed after {delay}s"
+
 
 async def with_timeout():
     try:

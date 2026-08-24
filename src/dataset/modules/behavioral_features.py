@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from itertools import combinations
-from typing import List, Tuple
 
 import torch
 
@@ -11,31 +10,10 @@ from .subject_sample import TransformOutput
 
 
 class BehavioralFeatures(BaseTransform):
-    """
-    Ekstrak 47-channel behavioral features dari raw flow window.
-    Dioptimalkan menggunakan PyTorch untuk akselerasi GPU dan vektorisasi murni.
-
-    Input  x : (T, N_roi, 2, H, W)   [ROI mode]
-    Output x : (T, C_behavioral)
-
-    Channels (5 ROI → 47 total):
-      mean_dx        : N_roi
-      mean_dy        : N_roi
-      raw_magnitude  : N_roi
-      motion_energy  : N_roi
-      dir_consistency: N_roi
-      acceleration   : N_roi
-      jerk           : N_roi
-      sync (pairwise): C(N_roi, 2) = 10
-      symmetry       : len(symmetry_pairs) = 2
-    ──────────────────
-    Total             : 5*7 + 10 + 2 = 47
-    """
-
     def __init__(
         self,
-        roi_order: List[str] = None,
-        symmetry_pairs: List[Tuple[int, int]] = None,
+        roi_order: list[str] = None,
+        symmetry_pairs: list[tuple[int, int]] = None,
     ):
         self.roi_order = roi_order or ROI_ORDER_DEFAULT
         self.symmetry_pairs = symmetry_pairs or SYMMETRY_PAIRS_DEFAULT
@@ -48,7 +26,6 @@ class BehavioralFeatures(BaseTransform):
     def __call__(self, inp: TransformOutput) -> TransformOutput:
         flow = inp.x
         if not isinstance(flow, torch.Tensor):
-            import numpy as np
             flow = torch.from_numpy(flow)
 
         if flow.ndim != 5:
@@ -62,7 +39,7 @@ class BehavioralFeatures(BaseTransform):
             flow = flow.cuda()
 
         features = self._extract(flow)
-        
+
         inp.x = features.to(device)
         return inp
 
@@ -74,13 +51,15 @@ class BehavioralFeatures(BaseTransform):
         u = flow[:, :, 0, :, :]
         v = flow[:, :, 1, :, :]
 
-        pixel_mag = torch.sqrt(u ** 2 + v ** 2)
+        pixel_mag = torch.sqrt(u**2 + v**2)
         motion_energy = pixel_mag.mean(dim=(2, 3))
 
         angles = torch.atan2(v, u)
-        
+
         mag_flat = pixel_mag.view(T, N_roi, -1)
-        p25 = torch.quantile(mag_flat.float(), 0.25, dim=2, keepdim=True).to(mag_flat.dtype)
+        p25 = torch.quantile(mag_flat.float(), 0.25, dim=2, keepdim=True).to(
+            mag_flat.dtype
+        )
         mask = mag_flat > p25
         valid_counts = mask.sum(dim=2)
 
@@ -91,7 +70,9 @@ class BehavioralFeatures(BaseTransform):
         cos_sum = cos_ang.sum(dim=2)
         sin_sum = sin_ang.sum(dim=2)
 
-        safe_counts = torch.where(valid_counts > 5, valid_counts, torch.ones_like(valid_counts))
+        safe_counts = torch.where(
+            valid_counts > 5, valid_counts, torch.ones_like(valid_counts)
+        )
         cos_mean = cos_sum / safe_counts
         sin_mean = sin_sum / safe_counts
 
@@ -108,11 +89,11 @@ class BehavioralFeatures(BaseTransform):
 
         mean_dx = u.mean(dim=(2, 3))
         mean_dy = v.mean(dim=(2, 3))
-        raw_mag = torch.sqrt(mean_dx ** 2 + mean_dy ** 2)
+        raw_mag = torch.sqrt(mean_dx**2 + mean_dy**2)
 
         mean_flow = torch.stack([mean_dx, mean_dy], dim=-1)
         sync = torch.zeros((T, self.n_sync), dtype=flow.dtype, device=flow.device)
-        
+
         for idx, (i, j) in enumerate(self.roi_pairs):
             fi = mean_flow[:, i, :]
             fj = mean_flow[:, j, :]
@@ -127,16 +108,33 @@ class BehavioralFeatures(BaseTransform):
             er = motion_energy[:, ri]
             sym[:, idx] = torch.abs(el - er) / (el + er + 1e-8)
 
-        features = torch.cat([
-            mean_dx, mean_dy, raw_mag, motion_energy, dir_consistency, accel, jerk, sync, sym,
-        ], dim=1).float()
+        features = torch.cat(
+            [
+                mean_dx,
+                mean_dy,
+                raw_mag,
+                motion_energy,
+                dir_consistency,
+                accel,
+                jerk,
+                sync,
+                sym,
+            ],
+            dim=1,
+        ).float()
 
         return features
 
-    def feature_names(self) -> List[str]:
+    def feature_names(self) -> list[str]:
         names = []
         for prefix in [
-            "mean_dx", "mean_dy", "raw_mag", "energy", "dir_consist", "accel", "jerk",
+            "mean_dx",
+            "mean_dy",
+            "raw_mag",
+            "energy",
+            "dir_consist",
+            "accel",
+            "jerk",
         ]:
             names.extend([f"{prefix}_{r}" for r in self.roi_order])
         for i, j in self.roi_pairs:
@@ -147,20 +145,11 @@ class BehavioralFeatures(BaseTransform):
 
 
 class BehavioralFeaturesFullFace(BaseTransform):
-    """
-    Behavioral features untuk FullFace flow (4D).
-    Dioptimalkan menggunakan PyTorch.
-
-    Input  x : (T, 2, H, W)
-    Output x : (T, C_ff)
-    """
-
     N_CHANNELS: int = 7
 
     def __call__(self, inp: TransformOutput) -> TransformOutput:
         flow = inp.x
         if not isinstance(flow, torch.Tensor):
-            import numpy as np
             flow = torch.from_numpy(flow)
 
         if flow.ndim != 4:

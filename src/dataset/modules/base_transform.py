@@ -6,8 +6,6 @@ from .subject_sample import SubjectSample, TransformOutput
 
 
 class BaseTransform(ABC):
-    """Interface minimum untuk semua transform dalam pipeline ini."""
-
     @abstractmethod
     def __call__(self, sample: SubjectSample | TransformOutput) -> TransformOutput: ...
 

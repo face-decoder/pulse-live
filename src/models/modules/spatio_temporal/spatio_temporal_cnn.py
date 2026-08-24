@@ -26,7 +26,7 @@ class SpatioTemporalCNN(nn.Module):
         )
 
     def forward(self, x, mask=None):
-        if x.ndim == 6:  # Handle ROI 6D (B, N_roi, C, T, H, W)
+        if x.ndim == 6:
             B, N_roi, C, T, H, W = x.shape
             x = x.view(B, N_roi * C, T, H, W)
         x = self.block1(x)

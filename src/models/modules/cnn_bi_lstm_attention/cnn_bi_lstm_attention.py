@@ -26,9 +26,6 @@ class CNN_BiLSTM_Attention(nn.Module):
         x = self.cnn(x).permute(0, 2, 1)
         x, _ = self.bilstm(x)
 
-        # Asumsi: CNN dengan maxpool(2) membagi panjang sequence menjadi dua.
-        # Jika menggunakan mask asli, mask harus di-subsample juga.
-        # Untuk kesederhanaan, kita abaikan mask di pooling layer jika CNN merubah dimensi waktu.
         context, attn_w = self.attention(x, mask=None)
 
         return self.classifier(context)

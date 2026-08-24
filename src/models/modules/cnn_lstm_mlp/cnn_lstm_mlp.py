@@ -18,11 +18,10 @@ class CNN_LSTM_MLP(nn.Module):
         )
 
     def forward(self, x, mask=None):
-        # x shape: (Batch, Channels, Time)
         x = self.cnn(x)
-        x = x.permute(0, 2, 1)  # Menjadi (Batch, Time, Channels) untuk LSTM
+        x = x.permute(0, 2, 1)
 
         _, (h_n, _) = self.lstm(x)
-        last_hidden = h_n[-1]  # Ambil state terakhir
+        last_hidden = h_n[-1]
 
         return self.classifier(last_hidden)

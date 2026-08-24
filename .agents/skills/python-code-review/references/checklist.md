@@ -44,15 +44,19 @@ Consistent formatting improves readability and reduces cognitive load for team m
 
 ```python
 # Bad: Inconsistent spacing
-def foo( x,y ):
-    return x+y
+def foo(x, y):
+    return x + y
+
 
 # Good: Consistent spacing
 def foo(x, y):
     return x + y
 
+
 # Bad: Multiple statements on one line
-if condition: do_something(); do_another()
+if condition:
+    do_something()
+    do_another()
 
 # Good: Separate lines
 if condition:
@@ -95,6 +99,7 @@ def proc(d):
             r.append(x)
     return r
 
+
 # Good: Descriptive names
 def get_active_users(users: list[User]) -> list[User]:
     active_users = []
@@ -102,6 +107,7 @@ def get_active_users(users: list[User]) -> list[User]:
         if user.status == UserStatus.ACTIVE:
             active_users.append(user)
     return active_users
+
 
 # Better: Using comprehension
 def get_active_users(users: list[User]) -> list[User]:
@@ -138,6 +144,7 @@ def add_item(item, items=[]):  # Bug: list is shared!
     items.append(item)
     return items
 
+
 # Good: Use None and create new list
 def add_item(item, items: list | None = None) -> list:
     if items is None:
@@ -145,15 +152,18 @@ def add_item(item, items: list | None = None) -> list:
     items.append(item)
     return items
 
+
 # Bad: Boolean flag creating two functions in one
 def get_users(include_inactive=False):
     if include_inactive:
         return db.query(User).all()
     return db.query(User).filter(User.active == True).all()
 
+
 # Good: Separate, clear functions
 def get_all_users() -> list[User]:
     return db.query(User).all()
+
 
 def get_active_users() -> list[User]:
     return db.query(User).filter(User.active == True).all()
@@ -214,6 +224,7 @@ class Config:
 
     def load(self, path):
         self.settings = load_file(path)  # Mutates state
+
 
 # Good: Immutable configuration
 @dataclass(frozen=True)
@@ -288,10 +299,7 @@ except DatabaseError as e:
 raise ValueError("Invalid input")
 
 # Good: Actionable with context
-raise ValueError(
-    f"Invalid email format: '{email}'. "
-    f"Expected format: user@domain.com"
-)
+raise ValueError(f"Invalid email format: '{email}'. Expected format: user@domain.com")
 ```
 
 ---
@@ -340,6 +348,7 @@ user = session.query(User).filter(User.id == user_id).first()
 # Bad: Path traversal vulnerability
 def read_file(filename):
     return open(f"/data/{filename}").read()  # User could pass "../etc/passwd"
+
 
 # Good: Validate path
 def read_file(filename: str) -> str:
@@ -415,6 +424,7 @@ result = "".join(str(item) for item in items)
 
 ```python
 from functools import lru_cache
+
 
 # Good: Cache expensive computation
 @lru_cache(maxsize=128)
@@ -504,6 +514,7 @@ def process(data):
     """Process the data."""
     pass
 
+
 # Good: Informative docstring
 def process_transaction(
     transaction: Transaction,
@@ -552,7 +563,7 @@ counter += 1
 # Good: Explains why
 # Use exponential backoff to avoid overwhelming the server
 # during recovery after an outage
-delay = base_delay * (2 ** attempt)
+delay = base_delay * (2**attempt)
 
 # Good: TODO with context
 # TODO(JIRA-123): Replace with batch API once available
@@ -606,19 +617,23 @@ def process_user(user):
         raise ValueError("Invalid email")
     # ... process
 
+
 def process_admin(admin):
     if not admin.email or "@" not in admin.email:
         raise ValueError("Invalid email")
     # ... process
+
 
 # Good: Extracted validation
 def validate_email(email: str) -> None:
     if not email or "@" not in email:
         raise ValueError(f"Invalid email: {email}")
 
+
 def process_user(user):
     validate_email(user.email)
     # ... process
+
 
 def process_admin(admin):
     validate_email(admin.email)
@@ -654,10 +669,12 @@ def process_admin(admin):
 # Good: Optional dependency handling
 try:
     import pandas as pd
+
     HAS_PANDAS = True
 except ImportError:
     HAS_PANDAS = False
     pd = None
+
 
 def export_to_dataframe(data):
     if not HAS_PANDAS:
@@ -694,7 +711,9 @@ def export_to_dataframe(data):
 # Remove these before production:
 print("DEBUG:", some_value)  # Remove
 breakpoint()  # Remove
-import pdb; pdb.set_trace()  # Remove
+import pdb
+
+pdb.set_trace()  # Remove
 
 # # Old implementation  # Remove commented code
 # def old_function():

@@ -24,13 +24,16 @@ Scheduled coroutines that run concurrently on the event loop.
 ```python
 import asyncio
 
+
 async def fetch_data(url: str) -> dict:
     await asyncio.sleep(1)  # Simulate I/O
     return {"url": url, "data": "result"}
 
+
 async def main():
     result = await fetch_data("https://api.example.com")
     print(result)
+
 
 asyncio.run(main())
 ```
@@ -41,10 +44,12 @@ async def fetch_user(user_id: int) -> dict:
     await asyncio.sleep(0.5)
     return {"id": user_id, "name": f"User {user_id}"}
 
+
 async def fetch_all_users(user_ids: list[int]) -> list[dict]:
     tasks = [fetch_user(uid) for uid in user_ids]
     results = await asyncio.gather(*tasks)
     return results
+
 
 async def main():
     users = await fetch_all_users([1, 2, 3, 4, 5])
@@ -58,6 +63,7 @@ async def background_task(name: str, delay: int):
     await asyncio.sleep(delay)
     print(f"{name} completed")
     return f"Result from {name}"
+
 
 async def main():
     # Create tasks

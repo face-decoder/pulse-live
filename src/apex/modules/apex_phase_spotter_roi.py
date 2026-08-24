@@ -1,47 +1,30 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Tuple, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
-from .apex_spotter import ApexSpotter
-from .apex_phase import ApexPhase
-from .apex_smoother import ApexSmoother
-from src.face.modules import FaceLandmark, FaceRoiPoints, FaceAligner
+from src.face.modules import FaceAligner, FaceLandmark, FaceRoiPoints
 from src.optical_flow.modules import TVL1
 from src.video.modules import Video
 
+from .apex_phase import ApexPhase
+from .apex_smoother import ApexSmoother
+from .apex_spotter import ApexSpotter
+
 
 class ApexPhaseSpotterROI(ApexSpotter):
-    """
-    V6-aligned apex phase detector for ROI-based analysis.
-    
-    Detects landmarks frame-by-frame (no interpolation), extracts optical flow
-    for 5 ROIs (left_eye, right_eye, lips, left_eyebrow, right_eyebrow),
-    and averages magnitudes per frame.
-    """
-
     def __init__(
         self,
-        tile_size: Tuple[int, int] = (64, 64),
+        tile_size: tuple[int, int] = (64, 64),
         margin: float = 0.05,
         distance_threshold: int = 5,
         prominence_threshold: float = 0.1,
         cutoff_ratio: float = 0.30,
         show_frame: bool = False,
     ):
-        """
-        Initialize ROI-based apex phase spotter.
-
-        Args:
-            tile_size: Target size for each ROI.
-            margin: Margin when extracting ROI (percentage).
-            distance_threshold: Minimum distance between peaks.
-            prominence_threshold: Minimum prominence for peaks.
-            cutoff_ratio: Cutoff ratio for phase determination.
-            show_frame: If True, print frame indices during processing.
-        """
         self.tile_size = tile_size
         self.tile_w, self.tile_h = tile_size
         self.margin = float(margin)
@@ -71,54 +54,35 @@ class ApexPhaseSpotterROI(ApexSpotter):
 
         self.reset()
 
-    def process(self, video_path: str, phase_mode: str = 'onset_to_apex') -> Tuple[List[int], dict]:
-        """
-        Process video to detect apex phases based on ROI.
-
-        Args:
-            video_path: Path to video file.
-            phase_mode: Mode for phase determination ('onset_to_apex' or 'onset_apex_offset').
-
-        Returns:
-            Tuple of (apex_indices, phases_dict).
-        """
+    def process(
+        self, video_path: str, phase_mode: str = "onset_to_apex"
+    ) -> tuple[list[int], dict]:
         self.reset()
         video = Video(video_path=video_path)
         video.map(self.__process_frame__)
 
-        return self._find_apex_phase(self.magnitudes, phase_mode=phase_mode)
+        return self.__find_apex_phase(self.magnitudes, phase_mode=phase_mode)
 
     def __process_frame__(
         self, prev_frame: np.ndarray, curr_frame: np.ndarray, frame_index: int
     ) -> None:
-        """
-        Process frame pair to compute ROI-based optical flow magnitude.
-
-        Args:
-            prev_frame: Previous frame.
-            curr_frame: Current frame.
-            frame_index: Frame index (unused).
-        """
         if self.show_frame:
             try:
                 print(f"Processing frame {frame_index}", end="\r", flush=True)
             except Exception:
                 pass
 
-        # Detect landmarks on both frames (no interpolation)
         prev_landmarks = self.landmarker.detect(prev_frame)
         curr_landmarks = self.landmarker.detect(curr_frame)
 
-        # Align frames
         prev_aligned = self.aligner.align(image=prev_frame, landmarks=prev_landmarks)
         curr_aligned = self.aligner.align(image=curr_frame, landmarks=curr_landmarks)
 
-        # Re-detect landmarks on aligned frames
         aligned_prev_landmarks = self.landmarker.detect(prev_aligned)
         aligned_curr_landmarks = self.landmarker.detect(curr_aligned)
 
         roi_magnitudes = []
-        roi_flows_in_frame: List[Dict[str, Any]] = []
+        roi_flows_in_frame: list[dict[str, Any]] = []
         for roi_name, roi_points in self.roi_defs:
             try:
                 roi_prev, _ = self.landmarker.crop_roi(
@@ -146,7 +110,6 @@ class ApexPhaseSpotterROI(ApexSpotter):
                 dx = np.asarray(flow[..., 0], dtype=np.float32)
                 dy = np.asarray(flow[..., 1], dtype=np.float32)
 
-                # Store per-ROI flow components (matching v6 training pipeline)
                 self.horizontal_magnitudes[roi_name].append(dx)
                 self.vertical_magnitudes[roi_name].append(dy)
 
@@ -166,73 +129,54 @@ class ApexPhaseSpotterROI(ApexSpotter):
         self.magnitudes.append(frame_magnitude)
         self.frame_roi_flows.append(roi_flows_in_frame)
 
-    def _find_apex_phase(self, magnitudes: List[float], phase_mode: str = "onset_to_apex") -> Tuple[List[int], dict]:
-        """
-        Detect apex and phases from magnitude signal (v6-style).
-
-        Args:
-            magnitudes: Per-frame magnitude signal.
-            phase_mode: 'onset_to_apex' to return onset->apex windows, or
-                        'onset_apex_offset' to return onset->offset windows.
-
-        Returns:
-            Tuple of (apex_indices, phases_dict).
-        """
+    def __find_apex_phase(
+        self, magnitudes: list[float], phase_mode: str = "onset_to_apex"
+    ) -> tuple[list[int], dict]:
         if phase_mode not in ("onset_to_apex", "onset_apex_offset"):
             raise ValueError(f"Unknown phase_mode: {phase_mode}")
 
-        smoothed = ApexSmoother.smooth(signal=magnitudes)
-        self.smoothed_magnitudes = smoothed
+        smoothed_arr = ApexSmoother.smooth(signal=magnitudes)
+        self.smoothed_magnitudes = smoothed_arr.tolist()
 
-        signal_arr = np.array(smoothed)
-        height_threshold = float(np.mean(signal_arr) + np.std(signal_arr))
+        height_threshold = float(np.mean(smoothed_arr) + np.std(smoothed_arr))
 
-        apex_indices = self.apex_phase.find_top_k_apex(signal=smoothed, k=10, height=height_threshold)
-        phases = self.apex_phase.find_phase(signal=smoothed, apex_indices=apex_indices, phase_mode=phase_mode)
+        apex_indices = self.apex_phase.find_top_k_apex(
+            signal=smoothed_arr.tolist(), k=10, height=height_threshold
+        )
+        phases = self.apex_phase.find_phase(
+            signal=smoothed_arr.tolist(),
+            apex_indices=apex_indices,
+            phase_mode=phase_mode,
+        )
 
         return apex_indices, phases
 
     def reset(self) -> None:
-        """Reset internal state for new video processing."""
-        self.magnitudes: List[float] = []
+        self.magnitudes: list[float] = []
         self._detected_frames: int = 0
 
-        # Per-ROI flow storage (matching v6 training pipeline)
-        self.horizontal_magnitudes: Dict[str, List[np.ndarray]] = {
+        self.horizontal_magnitudes: dict[str, list[np.ndarray]] = {
             roi_name: [] for roi_name, _ in self.roi_defs
         }
-        self.vertical_magnitudes: Dict[str, List[np.ndarray]] = {
+        self.vertical_magnitudes: dict[str, list[np.ndarray]] = {
             roi_name: [] for roi_name, _ in self.roi_defs
         }
-        self.frame_roi_flows: List[List[Dict[str, Any]]] = []
+        self.frame_roi_flows: list[list[dict[str, Any]]] = []
 
-    def detect_windows(self, flow: np.ndarray, phase_mode: str = "onset_to_apex") -> tuple:
-        """
-        Detect apex phase windows from ROI flow data.
-        
-        Args:
-            flow: ROI optical flow with shape (T, N_roi, 2, H, W) or (T, H, W, 2)
-            phase_mode: Phase extraction mode (onset_to_apex or full)
-        
-        Returns:
-            Tuple of (windows, metadata)
-        """
+    def detect_windows(
+        self, flow: np.ndarray, phase_mode: str = "onset_to_apex"
+    ) -> tuple:
         from .apex_phase_spotter_utils import flow_to_magnitude_signal
-        
+
         signal = flow_to_magnitude_signal(flow)
-        
+
         return self.detect_windows_from_signal(signal, phase_mode=phase_mode)
 
     def detect_windows_from_signal(
-        self, signal: Sequence[float], phase_mode: str = "onset_to_apex"
+        self, signal: Sequence[float] | np.ndarray, phase_mode: str = "onset_to_apex"
     ) -> tuple:
-        """
-        Detect windows from a magnitude signal (for webrtc compatibility).
-        
-        Uses v6-style mean+std threshold and top-10 peak selection.
-        """
         from .apex_phase_spotter_utils import detect_windows_from_signal
-        
+
         percentile = getattr(self, "percentile", 95.0)
         return detect_windows_from_signal(
             signal,
@@ -246,21 +190,31 @@ class ApexPhaseSpotterROI(ApexSpotter):
             phase_mode=phase_mode,
         )
 
+    def summarize_signal(self, signal: Sequence[float]) -> dict:
+        smoothed = [float(x) for x in signal]
+        detected_phases: list[dict[str, int]] = []
+        try:
+            smoothed = [float(x) for x in ApexSmoother.smooth(signal=smoothed).tolist()]
+
+            windows, meta = self.detect_windows_from_signal(signal)
+            actual = meta.get("phases", {}) if meta.get("valid", False) else {}
+            detected_phases = [
+                {
+                    "onset": int(actual.get(apex, {}).get("start", 0)),
+                    "apex": int(apex),
+                    "offset": int(actual.get(apex, {}).get("end", 0)),
+                }
+                for _, apex, _ in windows
+            ]
+        except Exception:
+            detected_phases = []
+
+        return {
+            "smoothed_magnitudes": smoothed,
+            "detected_phases": detected_phases,
+        }
+
     def export_flow_data(self) -> dict:
-        """
-        Export RAW optical flow data (unprocessed, model-agnostic).
-
-        Output format:
-            {
-                "flow": np.ndarray shaped (T, N_roi, 2, H, W),
-                "magnitudes": np.ndarray (T,),
-                "roi_order": list,
-                "meta": {...}
-            }
-
-        The method returns float16-encoded flow to save memory (matching
-        v6 training pipeline behaviour). All numeric magnitudes are float32.
-        """
         roi_order = [roi_name for roi_name, _ in self.roi_defs]
         roi_flows = []
 
@@ -271,16 +225,16 @@ class ApexPhaseSpotterROI(ApexSpotter):
             if len(dx_list) == 0 or len(dy_list) == 0:
                 continue
 
-            dx = np.stack(dx_list, axis=0)  # (T, H, W)
+            dx = np.stack(dx_list, axis=0)
             dy = np.stack(dy_list, axis=0)
 
-            flow = np.stack([dx, dy], axis=1)  # (T, 2, H, W)
+            flow = np.stack([dx, dy], axis=1)
             roi_flows.append(flow)
 
         if len(roi_flows) == 0:
             raise ValueError("No valid ROI flow data.")
 
-        flow = np.stack(roi_flows, axis=1)  # (T, N_roi, 2, H, W)
+        flow = np.stack(roi_flows, axis=1)
         flow = flow.astype(np.float16)
 
         magnitudes = np.asarray(self.magnitudes, dtype=np.float32)

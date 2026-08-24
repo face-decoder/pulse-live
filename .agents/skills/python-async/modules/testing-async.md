@@ -23,11 +23,13 @@ pip install pytest-asyncio
 import pytest
 import asyncio
 
+
 @pytest.mark.asyncio
 async def test_fetch_data():
     result = await fetch_data("https://api.example.com")
     assert result is not None
     assert "data" in result
+
 
 @pytest.mark.asyncio
 async def test_concurrent_fetches():
@@ -45,6 +47,7 @@ async def test_error_handling():
     with pytest.raises(ValueError):
         await risky_operation(3)
 
+
 @pytest.mark.asyncio
 async def test_timeout():
     with pytest.raises(asyncio.TimeoutError):
@@ -55,6 +58,7 @@ async def test_timeout():
 
 ```python
 from unittest.mock import AsyncMock
+
 
 @pytest.mark.asyncio
 async def test_with_mock():

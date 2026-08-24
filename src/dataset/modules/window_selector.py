@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from collections.abc import Sequence
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -8,20 +9,11 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 
 from ..constants.index import ROI_ORDER_DEFAULT
-
 from .base_transform import BaseTransform
 from .subject_sample import SubjectSample, TransformOutput
-from ..utils.pipeline_utils import LABEL_MAP
 
 
 class ApexWindowDetector:
-    """
-    Detect apex windows from optical flow and return with 5D (T, N_roi, 2, H, W).
-
-    Moved here from apex_window_detector.py so the detector lives alongside the
-    window selection transform.
-    """
-
     def __init__(
         self,
         percentile: float = 70,
@@ -46,7 +38,7 @@ class ApexWindowDetector:
         self,
         flow: np.ndarray,
         phase_mode: str = "onset_to_apex",
-        selected_rois: Optional[Sequence[str]] = None,
+        selected_rois: Sequence[str] | None = None,
     ) -> Tuple[List[Tuple[int, int, int]], dict]:
         T = flow.shape[0]
         dx = flow[:, :, 0, :, :].mean(axis=(2, 3))
@@ -65,7 +57,9 @@ class ApexWindowDetector:
         apex_signal_clean[apex_signal_clean < epsilon] = 0.0
 
         smoothed = gaussian_filter1d(apex_signal_clean, sigma=self.smooth_sigma)
-        threshold = max(np.percentile(smoothed, self.percentile), np.std(smoothed) * 0.5)
+        threshold = max(
+            np.percentile(smoothed, self.percentile), np.std(smoothed) * 0.5
+        )
         peaks, _ = find_peaks(
             smoothed,
             height=threshold,
@@ -79,10 +73,10 @@ class ApexWindowDetector:
         windows: List[Tuple[int, int, int]] = []
         for p in peaks:
             if phase_mode == "onset_to_apex":
-                left = self._find_onset(smoothed, p)
+                left = self.__find_onset(smoothed, p)
                 right = p + 1
             else:
-                left, right = self._find_phase(smoothed, p)
+                left, right = self.__find_phase(smoothed, p)
 
             length = right - left
             if length < self.min_window:
@@ -99,13 +93,24 @@ class ApexWindowDetector:
             windows.append((left, int(p), right))
 
         if not windows:
-            return [], {"valid": False, "reason": "no_valid_windows", "num_peaks": len(peaks)}
+            return [], {
+                "valid": False,
+                "reason": "no_valid_windows",
+                "num_peaks": len(peaks),
+            }
 
         apex_vals = smoothed[[p for _, p, _ in windows]]
-        confidence = float(np.mean(np.abs(apex_vals)) / (np.mean(np.abs(smoothed)) + 1e-6))
-        return windows, {"valid": True, "num_peaks": len(peaks), "num_windows": len(windows), "confidence": confidence}
+        confidence = float(
+            np.mean(np.abs(apex_vals)) / (np.mean(np.abs(smoothed)) + 1e-6)
+        )
+        return windows, {
+            "valid": True,
+            "num_peaks": len(peaks),
+            "num_windows": len(windows),
+            "confidence": confidence,
+        }
 
-    def _find_onset(self, signal: np.ndarray, p: int) -> int:
+    def __find_onset(self, signal: np.ndarray, p: int) -> int:
         peak_val = signal[p]
         left = p
         while left > 1:
@@ -116,7 +121,7 @@ class ApexWindowDetector:
             left -= 1
         return left
 
-    def _find_phase(self, signal: np.ndarray, p: int) -> Tuple[int, int]:
+    def __find_phase(self, signal: np.ndarray, p: int) -> Tuple[int, int]:
         T = len(signal)
         peak_val = signal[p]
         left = p
@@ -137,29 +142,13 @@ class ApexWindowDetector:
 
 
 class WindowSelector(BaseTransform):
-    """
-    Cutting the flow based on phase windows.
-
-    Phase windows are selected based on `phase_includes`.
-        - "onset"  : from left  -> apex
-        - "apex"   : apex frame itself (always included)
-        - "offset" : from apex  -> right
-
-    Output flow is concatenated along the time axis (T), in order onset->apex->offset.
-
-    Args:
-        phase_includes : subset from {"onset", "apex", "offset"}
-        max_windows    : take N best apex windows (sorted by apex magnitude)
-        max_len        : clip total frame after concatenation (None = no clipping)
-    """
-
     VALID_PHASES = frozenset({"onset", "apex", "offset"})
 
     def __init__(
         self,
         phase_includes: Sequence[str] = ("onset", "apex"),
         max_windows: int = 10,
-        max_len: Optional[int] = None,
+        max_len: int | None = None,
     ):
         unknown = set(phase_includes) - self.VALID_PHASES
         if unknown:

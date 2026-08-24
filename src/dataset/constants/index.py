@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
-
-ROI_ORDER_DEFAULT: List[str] = [
+ROI_ORDER_DEFAULT: list[str] = [
     "left_eye",
     "right_eye",
     "lips",
@@ -10,14 +8,14 @@ ROI_ORDER_DEFAULT: List[str] = [
     "right_eyebrow",
 ]
 
-SYMMETRY_PAIRS_DEFAULT: List[Tuple[int, int]] = [
-    (0, 1),  # left_eye ~ right_eye
-    (3, 4),  # left_eyebrow ~ right_eyebrow
+SYMMETRY_PAIRS_DEFAULT: list[tuple[int, int]] = [
+    (0, 1),
+    (3, 4),
 ]
 
-LABEL_MAP: Dict[str, int] = {
+LABEL_MAP: dict[str, int] = {
     "anxiety_rendah": 0,
     "anxiety_tinggi": 1,
 }
 
-PhaseMode = str  # "onset_to_apex" | "full"
+PhaseMode = str

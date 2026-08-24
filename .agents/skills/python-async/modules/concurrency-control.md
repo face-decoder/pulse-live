@@ -16,11 +16,13 @@ Semaphores limit the number of concurrent operations, essential for API rate lim
 ```python
 import asyncio
 
+
 async def api_call(url: str, semaphore: asyncio.Semaphore) -> dict:
     async with semaphore:
         print(f"Calling {url}")
         await asyncio.sleep(0.5)
         return {"url": url, "status": 200}
+
 
 async def rate_limited_requests(urls: list[str], max_concurrent: int = 5):
     semaphore = asyncio.Semaphore(max_concurrent)

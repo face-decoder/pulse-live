@@ -67,9 +67,7 @@ def process_order(
         raise ValueError(f"'quantity' must be positive, got {quantity}")
 
     if not 0 <= discount_percent <= 100:
-        raise ValueError(
-            f"'discount_percent' must be 0-100, got {discount_percent}"
-        )
+        raise ValueError(f"'discount_percent' must be 0-100, got {discount_percent}")
 
     # Validation passed, proceed with processing
     return _process_validated_order(order_id, quantity, discount_percent)
@@ -82,10 +80,12 @@ Parse strings and external data into typed domain objects at system boundaries.
 ```python
 from enum import Enum
 
+
 class OutputFormat(Enum):
     JSON = "json"
     CSV = "csv"
     PARQUET = "parquet"
+
 
 def parse_output_format(value: str) -> OutputFormat:
     """Parse string to OutputFormat enum.
@@ -104,9 +104,9 @@ def parse_output_format(value: str) -> OutputFormat:
     except ValueError:
         valid_formats = [f.value for f in OutputFormat]
         raise ValueError(
-            f"Invalid format '{value}'. "
-            f"Valid options: {', '.join(valid_formats)}"
+            f"Invalid format '{value}'. Valid options: {', '.join(valid_formats)}"
         )
+
 
 # Usage at API boundary
 def export_data(data: list[dict], format_str: str) -> bytes:
@@ -121,6 +121,7 @@ Use Pydantic models for structured input validation with automatic error message
 
 ```python
 from pydantic import BaseModel, Field, field_validator
+
 
 class CreateUserInput(BaseModel):
     """Input model for user creation."""
@@ -140,6 +141,7 @@ class CreateUserInput(BaseModel):
     @classmethod
     def normalize_name(cls, v: str) -> str:
         return v.strip().title()
+
 
 # Usage
 try:
@@ -195,6 +197,7 @@ class ApiError(Exception):
         self.response_body = response_body
         super().__init__(message)
 
+
 class RateLimitError(ApiError):
     """Raised when rate limit is exceeded."""
 
@@ -204,6 +207,7 @@ class RateLimitError(ApiError):
             f"Rate limit exceeded. Retry after {retry_after}s",
             status_code=429,
         )
+
 
 # Usage
 def handle_response(response: Response) -> dict:
@@ -230,9 +234,12 @@ Preserve the original exception when re-raising to maintain the debug trail.
 ```python
 import httpx
 
+
 class ServiceError(Exception):
     """High-level service operation failed."""
+
     pass
+
 
 def upload_file(path: str) -> str:
     """Upload file and return URL."""
@@ -258,6 +265,7 @@ Never let one bad item abort an entire batch. Track results per item.
 ```python
 from dataclasses import dataclass
 
+
 @dataclass
 class BatchResult[T]:
     """Results from batch processing."""
@@ -276,6 +284,7 @@ class BatchResult[T]:
     @property
     def all_succeeded(self) -> bool:
         return len(self.failed) == 0
+
 
 def process_batch(items: list[Item]) -> BatchResult[ProcessedItem]:
     """Process items, capturing individual failures.
@@ -298,6 +307,7 @@ def process_batch(items: list[Item]) -> BatchResult[ProcessedItem]:
 
     return BatchResult(succeeded=succeeded, failed=failed)
 
+
 # Caller handles partial results
 result = process_batch(items)
 if not result.all_succeeded:
@@ -315,6 +325,7 @@ Provide visibility into batch progress without coupling business logic to UI.
 from collections.abc import Callable
 
 ProgressCallback = Callable[[int, int, str], None]  # current, total, status
+
 
 def process_large_batch(
     items: list[Item],

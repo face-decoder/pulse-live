@@ -4,10 +4,6 @@ from .temporal_block import TemporalBlock
 
 
 class TCNModel(nn.Module):
-    """
-    Alternatif tanpa RNN yang sangat unggul untuk local temporal spikes.
-    """
-
     def __init__(
         self, in_channels=47, num_channels=[64, 64, 64], kernel_size=3, num_classes=2
     ):
@@ -27,7 +23,6 @@ class TCNModel(nn.Module):
         self.classifier = nn.Linear(num_channels[-1], num_classes)
 
     def forward(self, x, mask=None):
-        # x shape: (Batch, Channels, Time)
         out = self.network(x)
-        out = out.mean(dim=2)  # Global average pooling 1D
+        out = out.mean(dim=2)
         return self.classifier(out)

@@ -4,10 +4,9 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-# Load .env early so all os.getenv() calls in imported modules pick up the values.
 from dotenv import load_dotenv
 
-load_dotenv(override=False)  # real env vars always win
+load_dotenv(override=False)
 
 import uvicorn
 from fastapi import FastAPI
@@ -21,7 +20,6 @@ from src.api.websocket import router as websocket_router
 
 logger = logging.getLogger(__name__)
 
-# Configure root logger so INFO logs appear in the console and are saved to real-time.log
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -35,12 +33,11 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Application lifespan: load inferencer on startup, cleanup on shutdown."""
     from src.models.inferencer import load_inferencer_from_env
 
     logger.info("Loading inferencer from environment...")
     try:
-        inf = load_inferencer_from_env()  # registers singleton in registry; get_loaded_inferencer() will find it
+        inf = load_inferencer_from_env()
         logger.info("Inferencer ready: %r", inf)
     except Exception:
         logger.error(
@@ -49,7 +46,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             exc_info=True,
         )
 
-    # Initialise MinIO storage (best-effort — don't block startup if unavailable)
     try:
         from src.storage.modules import get_minio_storage
 
@@ -83,12 +79,10 @@ app.include_router(video_process_router)
 
 @app.get("/")
 def read_root() -> dict[str, str]:
-    """Health-check endpoint."""
     return {"message": "Hello from pulse live!"}
 
 
 def main() -> None:
-    """Run the development server."""
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 

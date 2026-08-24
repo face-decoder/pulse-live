@@ -2,25 +2,21 @@ from __future__ import annotations
 
 from typing import List, Literal, Tuple
 
-from .apex_spotter import ApexSpotter
 from .apex_phase_spotter_fullface import ApexPhaseSpotterFullFace
 from .apex_phase_spotter_roi import ApexPhaseSpotterROI
+from .apex_spotter import ApexSpotter
 
 ExtractionMode = Literal["roi", "fullface"]
 
 
 class ApexPhaseSpotter(ApexSpotter):
-    """Backward-compatible adapter for the old combined spotter API."""
-
     def __init__(self, mode: ExtractionMode = "roi", **kwargs):
         object.__setattr__(self, "mode", mode)
-        
-        # Pop parameters that aren't accepted by ROI/FullFace constructors
+
         percentile = kwargs.pop("percentile", None)
         prominence = kwargs.pop("prominence", None)
         distance = kwargs.pop("distance", None)
 
-        # Map to constructor parameters if they are not already set
         if prominence is not None and "prominence_threshold" not in kwargs:
             kwargs["prominence_threshold"] = prominence
         if distance is not None and "distance_threshold" not in kwargs:
@@ -31,7 +27,6 @@ class ApexPhaseSpotter(ApexSpotter):
         else:
             impl = ApexPhaseSpotterROI(**kwargs)
 
-        # Set properties on impl for runtime reference
         if percentile is not None:
             impl.percentile = percentile
         if prominence is not None:
@@ -41,8 +36,9 @@ class ApexPhaseSpotter(ApexSpotter):
 
         object.__setattr__(self, "_impl", impl)
 
-    def process(self, video_path: str, phase_mode: str = "onset_to_apex") -> Tuple[List[int], dict]:
-        # V6 implementations don't use phase_mode, ignore it
+    def process(
+        self, video_path: str, phase_mode: str = "onset_to_apex"
+    ) -> Tuple[List[int], dict]:
         return self._impl.process(video_path)
 
     def reset(self) -> None:

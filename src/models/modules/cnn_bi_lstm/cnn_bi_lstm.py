@@ -17,8 +17,7 @@ class CNN_BiLSTM(nn.Module):
 
     def forward(self, x, mask=None):
         x = self.cnn(x).permute(0, 2, 1)
-        x, _ = self.bilstm(x)  # (Batch, Time, Hidden)
+        x, _ = self.bilstm(x)
 
-        # Mean pooling sepanjang dimensi waktu
         x_pooled = x.mean(dim=1)
         return self.classifier(x_pooled)
