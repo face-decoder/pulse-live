@@ -69,7 +69,7 @@ The automated multi-stage pipeline consists of:
 
 - **Subtle Motion Detection**: Overcame high noise in micro-movements by combining Riesz Pyramids with dense TV-L1 optical flow.
 - **Real-Time Pipeline Sync**: Prevented frame drops under heavy GPU model evaluation through non-blocking async buffer queues.
-- **Custom GPU Build Dependencies**: Maintained custom Linux GPU wheels for MediaPipe 0.10.15 and OpenCV CUDA 4.15.
+- **Custom GPU Build Dependencies**: Maintained custom Linux GPU wheels for MediaPipe 0.10.15 and OpenCV (contrib) 5.0.0 built from source with CUDA.
 
 ---
 
@@ -116,7 +116,7 @@ The automated multi-stage pipeline consists of:
 
 - **OS**: Linux (Ubuntu 22.04 LTS or newer recommended)
 - **Python**: Version `3.12.*`
-- **NVIDIA GPU**: CUDA 12.x supported GPU with Driver 12.8 installed
+- **NVIDIA GPU** (optional, for the `cuda` extra): CUDA-capable GPU with a recent driver + CUDA toolkit 13.x installed
 - **Tooling**: [`uv`](https://github.com/astral-sh/uv), Docker & Docker Compose, GNU `make`
 
 ---
@@ -188,12 +188,23 @@ Refer to [`docs/VIDEO_UPLOAD.md`](file:///home/inadio/skripkir/pulse-live/docs/V
 | Command | Description |
 | :--- | :--- |
 | `make run` | Run server in production mode (`uv run python main.py`) |
+| `make run-cuda` | Run server with the CUDA extra active (OpenCV+CUDA, cupy) |
 | `make dev` | Run development server with auto-reload |
 | `make infra` | Start MinIO Docker container |
 | `make infra-down` | Stop MinIO Docker container |
 | `make infra-logs` | Tail MinIO Docker container logs |
-| `make sync-deps` | Synchronize virtual environment dependencies |
+| `make sync-deps` | Synchronize virtual environment dependencies (CPU-only) |
+| `make sync-deps-cuda` | Synchronize dependencies incl. the CUDA extra |
+| `make build-opencv-cuda` | Build OpenCV+CUDA from source and (re)package `packages/opencv_contrib_python-*.whl` |
 | `make clean` | Remove temporary cache files (`__pycache__`, `.tmp`) |
+
+**Enabling CUDA support**: the `packages/opencv_contrib_python-*.whl` in this repo is a real, regenerable build artifact, not hand-made. To rebuild it on your own machine (needed once per machine/GPU, or after bumping `OPENCV_VERSION`):
+```bash
+make build-opencv-cuda   # requires an NVIDIA GPU + driver, CUDA toolkit 13.x, cmake, ninja
+make sync-deps-cuda
+make run-cuda
+```
+Override `OPENCV_BUILD_DIR`, `OPENCV_INSTALL_PREFIX`, or `CUDA_ARCH_BIN` env vars if your build/CUDA layout differs from the defaults (see `scripts/build-opencv-cuda.sh`). CPU-only machines just use `make sync-deps` / `make run` — the `cuda` extra is fully optional.
 
 ---
 
@@ -260,9 +271,9 @@ pulse-live/
 │   ├── VIDEO_UPLOAD.md           # Offline upload specification
 │   ├── webrtc_websocket_workflow.md # Streaming pipeline guide
 │   └── workflow.md               # System processing overview
-├── packages/                     # Custom Linux GPU wheels (.whl)
-│   ├── mediapipe-0.10.15-*.whl   # Custom MediaPipe wheel
-│   └── opencv_cuda-4.15.0-*.whl  # Custom OpenCV CUDA wheel
+├── packages/                              # Custom Linux GPU wheels (.whl)
+│   ├── mediapipe-0.10.15-*.whl            # Custom MediaPipe wheel
+│   └── opencv_contrib_python-5.0.0-*.whl  # OpenCV (contrib) built from source w/ CUDA — regenerate via `make build-opencv-cuda`
 ├── scripts/                      # Utility scripts
 ├── notebooks/                    # Analysis & experiment notebooks
 └── src/                          # Application source code
