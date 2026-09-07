@@ -1,26 +1,37 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Tuple, Sequence
+from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
+import pandas as pd
+from scipy.signal import savgol_filter
 
-from .apex_spotter import ApexSpotter
-from .apex_phase import ApexPhase
-from .apex_smoother import ApexSmoother
-from src.face.modules import FaceLandmark, FaceRoiPoints, FaceAligner
+from src.face.modules import FaceAligner, FaceLandmark, FaceRoiPoints
 from src.optical_flow.modules import TVL1
 from src.video.modules import Video
+
+from .apex_phase import ApexPhase
+from .apex_smoother import ApexSmoother
+from .apex_spotter import ApexSpotter
 
 
 class ApexPhaseSpotterROI(ApexSpotter):
     """
     V6-aligned apex phase detector for ROI-based analysis.
-    
+
     Detects landmarks frame-by-frame (no interpolation), extracts optical flow
     for 5 ROIs (left_eye, right_eye, lips, left_eyebrow, right_eyebrow),
     and averages magnitudes per frame.
     """
+
+    # Smoothing/threshold window sizes are tuned as real-time durations, not
+    # fixed frame counts - CAS(ME)^2 (30fps) and SAMM/CASME-II (200fps) need
+    # very different frame counts for the same physical window. Defaults
+    # below reproduce the empirically-tuned CAS(ME)^2 values (11 and 15
+    # frames at 30fps): 366.7ms and 500ms.
+    SMOOTH_WINDOW_MS = 366.7
+    THRESH_WINDOW_MS = 500.0
 
     def __init__(
         self,
@@ -30,6 +41,9 @@ class ApexPhaseSpotterROI(ApexSpotter):
         prominence_threshold: float = 0.1,
         cutoff_ratio: float = 0.30,
         show_frame: bool = False,
+        fps: float = None,
+        smooth_window_ms: float = None,
+        thresh_window_ms: float = None,
     ):
         """
         Initialize ROI-based apex phase spotter.
@@ -41,11 +55,28 @@ class ApexPhaseSpotterROI(ApexSpotter):
             prominence_threshold: Minimum prominence for peaks.
             cutoff_ratio: Cutoff ratio for phase determination.
             show_frame: If True, print frame indices during processing.
+            fps: Frame rate of the input signal. When None (default),
+                preserves the original ApexSmoother-based, fps-agnostic
+                smoothing/threshold behavior (safe default for existing
+                callers - webrtc, autorunner - not yet fps-audited). Pass an
+                explicit fps to opt into the fixed real-time-duration
+                windows below (verified for CAS(ME)^2/CASME-II/SAMM).
+            smooth_window_ms: Override the default smoothing window duration.
+                Only used when fps is not None.
+            thresh_window_ms: Override the default threshold window duration.
+                Only used when fps is not None.
         """
         self.tile_size = tile_size
         self.tile_w, self.tile_h = tile_size
         self.margin = float(margin)
         self.show_frame = bool(show_frame)
+        self.fps = float(fps) if fps is not None else None
+        self.smooth_window_ms = (
+            smooth_window_ms if smooth_window_ms is not None else self.SMOOTH_WINDOW_MS
+        )
+        self.thresh_window_ms = (
+            thresh_window_ms if thresh_window_ms is not None else self.THRESH_WINDOW_MS
+        )
 
         self.landmarker = FaceLandmark()
         self.aligner = FaceAligner()
@@ -71,7 +102,9 @@ class ApexPhaseSpotterROI(ApexSpotter):
 
         self.reset()
 
-    def process(self, video_path: str, phase_mode: str = 'onset_to_apex') -> Tuple[List[int], dict]:
+    def process(
+        self, video_path: str, phase_mode: str = "onset_to_apex"
+    ) -> Tuple[List[int], dict]:
         """
         Process video to detect apex phases based on ROI.
 
@@ -166,7 +199,9 @@ class ApexPhaseSpotterROI(ApexSpotter):
         self.magnitudes.append(frame_magnitude)
         self.frame_roi_flows.append(roi_flows_in_frame)
 
-    def _find_apex_phase(self, magnitudes: List[float], phase_mode: str = "onset_to_apex") -> Tuple[List[int], dict]:
+    def _find_apex_phase(
+        self, magnitudes: List[float], phase_mode: str = "onset_to_apex"
+    ) -> Tuple[List[int], dict]:
         """
         Detect apex and phases from magnitude signal (v6-style).
 
@@ -181,14 +216,69 @@ class ApexPhaseSpotterROI(ApexSpotter):
         if phase_mode not in ("onset_to_apex", "onset_apex_offset"):
             raise ValueError(f"Unknown phase_mode: {phase_mode}")
 
-        smoothed = ApexSmoother.smooth(signal=magnitudes)
-        self.smoothed_magnitudes = smoothed
+        if self.fps is None:
+            # Original, fps-agnostic behavior - unaudited callers (webrtc,
+            # autorunner) keep exactly what they had before this session.
+            smoothed = ApexSmoother.smooth(signal=magnitudes)
+            self.smoothed_magnitudes = smoothed
+            signal_arr = np.array(smoothed)
+            height_threshold = float(np.mean(signal_arr) + np.std(signal_arr))
+        else:
+            # ApexSmoother scales its window to 10% of video length (capped
+            # 51), which for our ~2000+ frame videos means a ~51-frame savgol
+            # filter smearing out a ~14-frame ME event - the two-pass
+            # boundary walk then sees slow decay instead of a real valley and
+            # returns windows ~2.6x too wide. Use a small fixed window
+            # matched to ME duration instead, as a real-time duration
+            # (self.smooth_window_ms) converted to frames via self.fps - a
+            # fixed frame count would be wrong at a different frame rate
+            # (e.g. SAMM/CASME-II run at 200fps, not 30fps).
+            window_length = max(3, round(self.smooth_window_ms / 1000.0 * self.fps))
+            window_length = min(
+                window_length,
+                len(magnitudes) if len(magnitudes) % 2 == 1 else len(magnitudes) - 1,
+            )
+            if window_length % 2 == 0:
+                window_length += 1
+            window_length = max(3, window_length)
+            polyorder = min(3, window_length - 1)
+            smoothed = savgol_filter(magnitudes, window_length, polyorder).astype(
+                np.float32
+            )
+            self.smoothed_magnitudes = smoothed
 
-        signal_arr = np.array(smoothed)
-        height_threshold = float(np.mean(signal_arr) + np.std(signal_arr))
+            signal_arr = np.array(smoothed)
 
-        apex_indices = self.apex_phase.find_top_k_apex(signal=smoothed, k=10, height=height_threshold)
-        phases = self.apex_phase.find_phase(signal=smoothed, apex_indices=apex_indices, phase_mode=phase_mode)
+            # A whole-video mean+std threshold buries a short ME peak (~14
+            # frames) under noise from a much longer video (~2000+ frames
+            # avg): head motion, blinks, speech elsewhere in the clip skew
+            # the global baseline. Use a rolling local baseline instead so
+            # the threshold reflects nearby signal, not the whole video.
+            # Window must roughly match the smoothing window above - too
+            # much wider barely moves locally, letting noise bumps clear a
+            # near-flat threshold uniformly. Real-time duration
+            # (self.thresh_window_ms), scaled by fps, same reasoning as above.
+            # ponytail: 500ms picked empirically for CAS(ME)^2 (plateau
+            # 433-700ms all tie on F1); re-verify per-dataset if fps or event
+            # duration differ.
+            window = max(3, round(self.thresh_window_ms / 1000.0 * self.fps))
+            series = pd.Series(signal_arr)
+            local_mean = series.rolling(
+                window=window, center=True, min_periods=1
+            ).mean()
+            local_std = (
+                series.rolling(window=window, center=True, min_periods=1)
+                .std()
+                .fillna(0.0)
+            )
+            height_threshold = (local_mean + local_std).to_numpy()
+
+        apex_indices = self.apex_phase.find_top_k_apex(
+            signal=smoothed, k=10, height=height_threshold
+        )
+        phases = self.apex_phase.find_phase(
+            signal=smoothed, apex_indices=apex_indices, phase_mode=phase_mode
+        )
 
         return apex_indices, phases
 
@@ -206,21 +296,23 @@ class ApexPhaseSpotterROI(ApexSpotter):
         }
         self.frame_roi_flows: List[List[Dict[str, Any]]] = []
 
-    def detect_windows(self, flow: np.ndarray, phase_mode: str = "onset_to_apex") -> tuple:
+    def detect_windows(
+        self, flow: np.ndarray, phase_mode: str = "onset_to_apex"
+    ) -> tuple:
         """
         Detect apex phase windows from ROI flow data.
-        
+
         Args:
             flow: ROI optical flow with shape (T, N_roi, 2, H, W) or (T, H, W, 2)
             phase_mode: Phase extraction mode (onset_to_apex or full)
-        
+
         Returns:
             Tuple of (windows, metadata)
         """
         from .apex_phase_spotter_utils import flow_to_magnitude_signal
-        
+
         signal = flow_to_magnitude_signal(flow)
-        
+
         return self.detect_windows_from_signal(signal, phase_mode=phase_mode)
 
     def detect_windows_from_signal(
@@ -228,11 +320,11 @@ class ApexPhaseSpotterROI(ApexSpotter):
     ) -> tuple:
         """
         Detect windows from a magnitude signal (for webrtc compatibility).
-        
+
         Uses v6-style mean+std threshold and top-10 peak selection.
         """
         from .apex_phase_spotter_utils import detect_windows_from_signal
-        
+
         percentile = getattr(self, "percentile", 95.0)
         return detect_windows_from_signal(
             signal,

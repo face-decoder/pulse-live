@@ -33,6 +33,14 @@ class FaceRoiPoints:
                                          (310, 415), (415, 308)])
     
 
+    ALL_ROIS = [
+        LEFT_EYE_POINTS,
+        RIGHT_EYE_POINTS,
+        LIPS_POINTS,
+        LEFT_EYEBROW_POINTS,
+        RIGHT_EYEBROW_POINTS,
+    ]
+
 @dataclass
 class FaceRoiSizes:
 

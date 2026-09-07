@@ -3,7 +3,6 @@ from scipy.signal import find_peaks
 
 
 class ApexPhase:
-
     # Ambang batas yang digunakan untuk menentukan jarak antar titik puncak
     DISTANCE_THRESHOLD = 5
 
@@ -25,19 +24,20 @@ class ApexPhase:
     # Radius pencarian maksimal dari apex untuk onset/offset
     MAX_SEARCH_RADIUS = 100
 
-    def __init__(self,
-                 distance_threshold: int = DISTANCE_THRESHOLD,
-                 merge_distance: int = MERGE_DISTANCE_THRESHOLD,
-                 prominence_threshold: float = PROMINENCE_THRESHOLD,
-                 cutoff_ratio: float = PEAK_CUTOFF_THRESHOLD,
-                 valley_uptick_threshold: float = VALLEY_UPTICK_THRESHOLD) -> None:
+    def __init__(
+        self,
+        distance_threshold: int = DISTANCE_THRESHOLD,
+        merge_distance: int = MERGE_DISTANCE_THRESHOLD,
+        prominence_threshold: float = PROMINENCE_THRESHOLD,
+        cutoff_ratio: float = PEAK_CUTOFF_THRESHOLD,
+        valley_uptick_threshold: float = VALLEY_UPTICK_THRESHOLD,
+    ) -> None:
 
         self.distance = distance_threshold
         self.merge_distance = merge_distance
         self.prominence = prominence_threshold
         self.cutoff_ratio = cutoff_ratio
         self.valley_uptick_threshold = valley_uptick_threshold
-
 
     def find_apex(self, signal: list, height: float = None) -> list:
         """
@@ -53,11 +53,10 @@ class ApexPhase:
         """
         kwargs = dict(distance=self.distance, prominence=self.prominence)
         if height is not None:
-            kwargs['height'] = height
+            kwargs["height"] = height
 
         peaks, _ = find_peaks(signal, **kwargs)
         return peaks.tolist()
-
 
     def find_top_k_apex(self, signal: list, k: int = 0, height: float = None) -> list:
         """
@@ -75,18 +74,21 @@ class ApexPhase:
         """
         kwargs = dict(distance=self.distance, prominence=self.prominence)
         if height is not None:
-            kwargs['height'] = height
+            kwargs["height"] = height
 
         peaks, _ = find_peaks(signal, **kwargs)
         peaks = peaks.tolist()
 
         # ── Auto-merge: gabungkan puncak yang terlalu berdekatan ──
-        peaks = self.merge_nearby_peaks(signal, peaks, merge_distance=self.merge_distance)
+        peaks = self.merge_nearby_peaks(
+            signal, peaks, merge_distance=self.merge_distance
+        )
 
         return peaks
 
-
-    def merge_nearby_peaks(self, signal: list, peaks: list, merge_distance: int = None) -> list:
+    def merge_nearby_peaks(
+        self, signal: list, peaks: list, merge_distance: int = None
+    ) -> list:
         """
         Menggabungkan puncak-puncak yang terlalu berdekatan menjadi satu puncak.
         Jika jarak antar dua puncak < merge_distance, puncak dengan nilai lebih rendah
@@ -129,8 +131,13 @@ class ApexPhase:
 
         return merged
 
-
-    def find_phase(self, signal: list, apex_indices: list, cutoff_ratio: float = None, phase_mode: str = "onset_to_apex") -> dict:
+    def find_phase(
+        self,
+        signal: list,
+        apex_indices: list,
+        cutoff_ratio: float = None,
+        phase_mode: str = "onset_to_apex",
+    ) -> dict:
         """
         Mendeteksi fase apex berdasarkan sinyal dan indeks apex yang sudah ditemukan.
 
@@ -160,16 +167,21 @@ class ApexPhase:
         phases = dict()
 
         for idx, apex_index in enumerate(apex_indices):
-
             # Midpoint boundary (mencegah tumpang tindih antar fase)
             left_bound = 0 if idx == 0 else (apex_indices[idx - 1] + apex_index) // 2
-            right_bound = len(signal) - 1 if idx == len(apex_indices) - 1 else (apex_index + apex_indices[idx + 1]) // 2
+            right_bound = (
+                len(signal) - 1
+                if idx == len(apex_indices) - 1
+                else (apex_index + apex_indices[idx + 1]) // 2
+            )
 
-            start_index, end_index = self.__find_phase_boundaries(signal=signal,
-                                                                  apex_index=apex_index,
-                                                                  cutoff_ratio=cutoff,
-                                                                  left_bound=left_bound,
-                                                                  right_bound=right_bound)
+            start_index, end_index = self.__find_phase_boundaries(
+                signal=signal,
+                apex_index=apex_index,
+                cutoff_ratio=cutoff,
+                left_bound=left_bound,
+                right_bound=right_bound,
+            )
 
             # Clamp hasil ke midpoint boundary agar fase antar apex tidak overlap
             start_index = max(start_index, left_bound)
@@ -183,13 +195,14 @@ class ApexPhase:
 
         return phases
 
-
-    def __find_phase_boundaries(self,
-                                signal: list,
-                                apex_index: int,
-                                cutoff_ratio: float,
-                                left_bound: int = 0,
-                                right_bound: int = None) -> tuple:
+    def __find_phase_boundaries(
+        self,
+        signal: list,
+        apex_index: int,
+        cutoff_ratio: float,
+        left_bound: int = 0,
+        right_bound: int = None,
+    ) -> tuple:
         """
         Mendeteksi batas fase apex menggunakan two-pass approach:
         1. Pass 1: Cari local valley (titik terendah lokal) kiri/kanan dari apex
@@ -229,7 +242,10 @@ class ApexPhase:
                 run_min_idx_l = i
             else:
                 amp_range = apex_value - run_min_val_l
-                if amp_range > 0 and (val - run_min_val_l) / amp_range > self.valley_uptick_threshold:
+                if (
+                    amp_range > 0
+                    and (val - run_min_val_l) / amp_range > self.valley_uptick_threshold
+                ):
                     break  # kenaikan sangat signifikan → puncak baru, stop
         valley_left = run_min_idx_l
 
@@ -247,7 +263,10 @@ class ApexPhase:
                 run_min_idx_r = i
             else:
                 amp_range = apex_value - run_min_val_r
-                if amp_range > 0 and (val - run_min_val_r) / amp_range > self.valley_uptick_threshold:
+                if (
+                    amp_range > 0
+                    and (val - run_min_val_r) / amp_range > self.valley_uptick_threshold
+                ):
                     break  # kenaikan sangat signifikan → puncak baru, stop
         valley_right = run_min_idx_r
 
@@ -255,8 +274,8 @@ class ApexPhase:
         apex_value = signal_arr[apex_index]
 
         # Local min hanya dalam range valley (bukan seluruh boundary)
-        local_min_left = float(signal_arr[valley_left:apex_index + 1].min())
-        local_min_right = float(signal_arr[apex_index:valley_right + 1].min())
+        local_min_left = float(signal_arr[valley_left : apex_index + 1].min())
+        local_min_right = float(signal_arr[apex_index : valley_right + 1].min())
         local_min = min(local_min_left, local_min_right)
 
         threshold = local_min + (apex_value - local_min) * cutoff_ratio
