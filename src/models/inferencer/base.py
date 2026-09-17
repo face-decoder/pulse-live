@@ -179,7 +179,8 @@ class BaseAnxietyInferencer(ABC):
         )
 
         model = self.build_model().to(self.device)
-        model.load_state_dict(ck["model_state_dict"])
+        state_dict = ck.get("model_state_dict", ck)
+        model.load_state_dict(state_dict)
         model.eval()
         self._model = model
 
