@@ -33,6 +33,8 @@ clean:
 
 sync-deps: ## Sync deps, CPU-only
 	@uv sync
+	@uv run python scripts/patch_mediapipe.py
 
 sync-deps-cuda: ## Sync deps incl. CUDA extras
 	@uv sync --extra cuda
+	@uv run python scripts/patch_mediapipe.py
